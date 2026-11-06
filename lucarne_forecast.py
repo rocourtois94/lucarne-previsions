@@ -134,6 +134,7 @@ def unit(lat, lon):
 
 def main():
     t0 = time.time()
+    check_r2()
     ref = latest_reference()
     print("Run", ref)
     lat, lon = grid_coordinates()
@@ -193,9 +194,36 @@ def main():
     print("Terminé en", round(time.time() - t0), "s")
 
 
-def upload(files):
+def r2_settings():
     # .strip() : un espace ou un retour à la ligne collé avec le secret le rend invalide
-    acc, key, sec, bucket = ((os.environ.get(k) or "").strip() for k in ("R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_BUCKET"))
+    return tuple((os.environ.get(k) or "").strip() for k in ("R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_BUCKET"))
+
+
+def r2_client():
+    acc, key, sec, bucket = r2_settings()
+    import boto3
+    return boto3.client("s3", endpoint_url=f"https://{acc}.r2.cloudflarestorage.com",
+                        aws_access_key_id=key, aws_secret_access_key=sec, region_name="auto"), bucket
+
+
+def check_r2():
+    """Essai d'écriture dans R2 avant le long calcul (affiche la cause en clair, jamais les secrets)."""
+    acc, key, sec, bucket = r2_settings()
+    if not all((acc, key, sec, bucket)):
+        return
+    print(f"R2 : compte {len(acc)} car., clé {len(key)} car. (32 attendus), secret {len(sec)} car. (64 attendus), bucket « {bucket} »")
+    from botocore.exceptions import ClientError
+    s3, bucket = r2_client()
+    try:
+        s3.put_object(Bucket=bucket, Key=PREFIX + "_essai.txt", Body=b"ok", ContentType="text/plain")
+        print("R2 : écriture OK")
+    except ClientError as e:
+        err = e.response.get("Error", {})
+        sys.exit(f"R2 refuse l'écriture : {err.get('Code')} — {err.get('Message')}")
+
+
+def upload(files):
+    acc, key, sec, bucket = r2_settings()
     if not all((acc, key, sec, bucket)):
         os.makedirs("sortie", exist_ok=True)
         for name, data in files.items():
@@ -204,9 +232,7 @@ def upload(files):
             open(p, "wb").write(data)
         print("Pas de secrets R2 : fichiers écrits dans ./sortie")
         return
-    import boto3
-    s3 = boto3.client("s3", endpoint_url=f"https://{acc}.r2.cloudflarestorage.com",
-                      aws_access_key_id=key, aws_secret_access_key=sec, region_name="auto")
+    s3, bucket = r2_client()
     def put(item):
         name, data = item
         s3.put_object(Bucket=bucket, Key=name, Body=data, CacheControl="public, max-age=1800",
