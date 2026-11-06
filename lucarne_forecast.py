@@ -248,4 +248,14 @@ def upload(files):
 
 
 if __name__ == "__main__":
-    main()
+    import traceback
+    errors = 0
+    for name, job in (("nuages", main), ("seeing", lambda: __import__("seeing").run_seeing(upload))):
+        try:
+            job()
+        except SystemExit as e:
+            if e.code not in (None, 0):
+                print(f"Échec ({name}) :", e.code); errors += 1
+        except Exception:
+            print(f"Échec ({name}) :"); traceback.print_exc(); errors += 1
+    sys.exit(1 if errors else 0)
