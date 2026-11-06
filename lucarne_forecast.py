@@ -51,7 +51,8 @@ def search(body):
         if not nxt:
             return out
         url = nxt["href"]
-        b = nxt.get("body", b)
+        # « merge: true » : le curseur s'ajoute aux filtres de la recherche (sinon on recevrait tout le catalogue)
+        b = {**body, **nxt.get("body", {})} if nxt.get("merge", True) else nxt.get("body", body)
 
 
 def iso_horizon(h):
@@ -74,7 +75,8 @@ def asset_urls(ref, var):
     urls = {}
     for f in feats:
         p = f["properties"]
-        if p.get("forecast:perturbed") or p.get("forecast:variable") != var or not f.get("assets"):
+        if (p.get("forecast:perturbed") or p.get("forecast:variable") != var or not f.get("assets")
+                or p.get("forecast:reference_datetime") != ref):
             continue
         # Échéance : « P0DT12H00M00S », sinon date de validité − date du run
         hz = p.get("forecast:horizon")
