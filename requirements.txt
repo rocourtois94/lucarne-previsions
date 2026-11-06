@@ -1,0 +1,4 @@
+numpy
+scipy
+eccodes
+boto3
