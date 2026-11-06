@@ -194,7 +194,8 @@ def main():
 
 
 def upload(files):
-    acc, key, sec, bucket = (os.environ.get(k) for k in ("R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_BUCKET"))
+    # .strip() : un espace ou un retour à la ligne collé avec le secret le rend invalide
+    acc, key, sec, bucket = ((os.environ.get(k) or "").strip() for k in ("R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_BUCKET"))
     if not all((acc, key, sec, bucket)):
         os.makedirs("sortie", exist_ok=True)
         for name, data in files.items():
