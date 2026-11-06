@@ -22,7 +22,7 @@ import numpy as np
 import eccodes
 
 LEVELS = [1000, 975, 950, 925, 900, 850, 800, 750, 700, 650, 600, 550, 500, 450, 400, 350, 300, 250, 200, 150, 100, 70, 50]
-BOX = dict(top=72, bottom=34, left=-25, right=45)       # Europe
+BOX = dict(top=72, bottom=35, left=-25, right=45)       # Europe (bords sur des multiples de 5°)
 STEPS = list(range(0, 121, 3))
 TILE = 5
 PREFIX = "fc1/seeing/"
