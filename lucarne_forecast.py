@@ -258,7 +258,11 @@ def upload(files):
 if __name__ == "__main__":
     import traceback
     errors = 0
-    for name, job in (("nuages", main), ("seeing", lambda: __import__("seeing").run_seeing(upload))):
+    jobs = (("nuages", main),
+            ("seeing", lambda: __import__("seeing").run_seeing(upload)),
+            ("arome", lambda: __import__("arome").run_arome(upload)),
+            ("ecmwf", lambda: __import__("ecmwf").run_ecmwf(upload)))
+    for name, job in jobs:
         try:
             job()
         except SystemExit as e:

@@ -29,3 +29,15 @@ plus avec le vent à 10 m). Morceaux 5° × 5° `fc1/seeing/<lat>_<lon>.bin`, en
 
 ### Nuages GFS (dans les morceaux seeing)
 Depuis le 7/11/2026, chaque morceau `fc1/seeing/` contient 3 variables : seeing (0,05″), courant-jet (m/s) et nébulosité totale GFS (TCDC, % instantané, 255 = inconnu). Sert à la carte « Meilleur ciel » de l'app hors du domaine MeteoSwiss.
+
+
+## Météo-France AROME (depuis le 7/11/2026)
+`arome.py` : AROME 0,01° (≈ 1,3 km, 51 h), paquet SP2 (nébulosité basse, moyenne, haute ; seuls ces 3 champs sont
+téléchargés, par requêtes partielles). Grille ramenée à 0,02° sur 41–52° N, 6° O–10° E. Morceaux 1° × 1°
+`fc1/arome/<lat>_<lon>.bin`, format « LCFC » (4 variables : CLCT calculée par recouvrement aléatoire, CLCL, CLCM, CLCH ;
+pas 1 h). Licence Ouverte 2.0 — « Source : Météo-France ».
+
+## ECMWF IFS 0,1° (depuis le 7/11/2026)
+`ecmwf.py` : données ouvertes ECMWF, nébulosité tcc, lcc, mcc, hcc, toutes les 3 h jusqu'à 72 h, Europe (35–72° N,
+25° O–45° E). Morceaux 5° × 5° bords inclus (51 × 51 points) `fc1/ec/<lat>_<lon>.bin`, format « LCFC » (pas 3 h).
+Remplace la nébulosité GFS pour la carte « Meilleur ciel ». CC BY 4.0 — « Source : ECMWF ».
