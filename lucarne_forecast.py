@@ -3,7 +3,8 @@
 
 Tourne sur GitHub Actions toutes les 6 heures :
  1. trouve le dernier run complet d'ICON-CH2-EPS (membre de contrôle, 2,1 km, 120 h) via l'API STAC de geo.admin.ch ;
- 2. télécharge la nébulosité totale, basse, moyenne et haute (CLCT, CLCL, CLCM, CLCH) pour chaque heure ;
+ 2. télécharge la nébulosité totale, basse, moyenne et haute (CLCT, CLCL, CLCM, CLCH) et l'altitude du sommet
+    des nuages (CDCT) pour chaque heure ;
  3. la ramène sur une grille régulière de 0,02° (plus proche point de la grille icosaédrique) ;
  4. découpe en morceaux de 1° × 1° (« LCFC ») et les dépose dans R2 (fc1/ch2/<lat>_<lon>.bin + latest.json).
 
@@ -21,7 +22,10 @@ from scipy.spatial import cKDTree
 
 STAC = "https://data.geo.admin.ch/api/stac/v1"
 COLL = "ch.meteoschweiz.ogd-forecasting-icon-ch2"
-VARS = ["CLCT", "CLCL", "CLCM", "CLCH"]
+VARS = ["CLCT", "CLCL", "CLCM", "CLCH", "CDCT"]
+# CDCT : sommet des nuages au-dessus de la mer (m), codé par pas de 20 m (1…250 = 20…5000 m, 250 = 5000 m ou plus),
+# 0 = pas de nuage. Sert à savoir si une mer de brouillard / stratus est SOUS le lieu (lieu en altitude).
+TOP_STEP = 20
 HOURS = 120
 RES = 0.02          # degrés
 TILE = 1            # degré
@@ -162,7 +166,11 @@ def main():
     def work(job):
         vi, h, u = job
         vals = grib_values(download(u))
-        g = np.clip(np.rint(vals[idx]), 0, 100).astype(np.uint8)
+        if VARS[vi] == "CDCT":
+            v = vals[idx]
+            g = np.where(v < 0, 0, np.clip(np.rint(v / TOP_STEP), 1, 250)).astype(np.uint8)
+        else:
+            g = np.clip(np.rint(vals[idx]), 0, 100).astype(np.uint8)
         g[far] = 255
         return vi, h, g
 
@@ -187,7 +195,7 @@ def main():
             files[f"{PREFIX}{int(la)}_{int(lo)}.bin"] = hdr + c.compress(block.tobytes()) + c.flush()
     meta = {"model": "ICON-CH2-EPS (contrôle)", "source": "MeteoSwiss", "licence": "CC BY 4.0",
             "reference": ref, "generated": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
-            "variables": VARS, "hours": nh, "lat": [float(lat0), float(lat1 + 1)], "lon": [float(lon0), float(lon1 + 1)],
+            "variables": VARS, "cdct_step_m": TOP_STEP, "hours": nh, "lat": [float(lat0), float(lat1 + 1)], "lon": [float(lon0), float(lon1 + 1)],
             "tiles": len(files)}
     files[PREFIX + "latest.json"] = json.dumps(meta).encode()
     total = sum(len(b) for b in files.values())

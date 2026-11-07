@@ -17,7 +17,9 @@ Données : MeteoSwiss, licence CC BY 4.0 — mention obligatoire « Source : Met
 `LCFC` · version (u16) · run en secondes Unix (i64) · pas (u32, 3600) · heures (u16) · variables (u16)
 · lat sud (f32) · lon ouest (f32) · pas de grille (f32, 0,02°) · lignes (u16) · colonnes (u16),
 puis les octets compressés (DEFLATE brut, sans en-tête zlib) : [heure][variable][ligne du sud au nord][colonne d'ouest en est], en %,
-255 = hors domaine. Variables : CLCT, CLCL, CLCM, CLCH.
+255 = hors domaine. Variables : CLCT, CLCL, CLCM, CLCH (en %), puis CDCT depuis le 7/11/2026 : sommet des nuages
+au-dessus de la mer par pas de 20 m (1…250 = 20…5000 m et plus), 0 = pas de nuage. Les anciennes versions de l'app
+lisent seulement les 4 premières variables (le nombre de variables est dans l'en-tête).
 
 ## Seeing (`seeing.py`)
 Modèle **GFS 0,25°** (NOAA/NCEP, domaine public) via le filtre NOMADS (Europe 34–72° N, 25° O–45° E, toutes les 3 h
