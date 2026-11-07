@@ -131,7 +131,7 @@ def run_arome(put):
     cube = np.full((HOURS + 1, len(VARS)) + shape, 255, np.uint8)
     blk = lambda v: v.reshape(shape[0], 2, shape[1], 2).mean(axis=(1, 3))     # 0,01° → 0,02°
     # Image infrarouge : tout le domaine AROME à 0,05°, placé dans une grille 35–60° N, 15° O–20° E (morceaux de 5°)
-    ir = np.full((HOURS + 1, 1, 500, 700), 255, np.uint8)
+    ir = np.full((HOURS + 1, 2, 500, 700), 255, np.uint8)     # 0 : écart infrarouge (0,5 K) ; 1 : nuages bas (%)
 
     def work(h):
         u = url(run, h)
@@ -140,8 +140,10 @@ def run_arome(put):
             return h, None
         out = {}
         for k, (o, n) in msgs.items():
-            v = field(get(u, (o, o + n - 1)))[i0:i0 + nj_, j0:j0 + ni_]
-            out[WANT[k]] = blk(v) / 100
+            full = field(get(u, (o, o + n - 1)))
+            if k == (6, 3):     # nuages bas sur tout le domaine, pour la couche « satellite prévu » (brouillard, stratus)
+                out["LOW"] = np.nanmean(full[:IR_NJ * 5, :IR_NI * 5].reshape(IR_NJ, 5, IR_NI, 5), axis=(1, 3))
+            out[WANT[k]] = blk(full[i0:i0 + nj_, j0:j0 + ni_]) / 100
         # Température, humidité, vent, rafales (paquet SP1)
         try:
             u1 = u.replace("SP2", "SP1")
@@ -192,6 +194,9 @@ def run_arome(put):
             if "IR" in out:
                 v = out["IR"]
                 ir[h, 0, IR_R0:IR_R0 + IR_NJ, IR_C0:IR_C0 + IR_NI] = np.where(np.isnan(v), 255, np.clip(np.rint(v * 2), 0, 250))
+            if "LOW" in out:
+                v = out["LOW"]
+                ir[h, 1, IR_R0:IR_R0 + IR_NJ, IR_C0:IR_C0 + IR_NI] = np.where(np.isnan(v), 255, np.clip(np.rint(v), 0, 100))
     # Vapeur d'eau de la colonne (0,025°, fichiers de 6 h) : plus proche point de la grille 0,025°
     la_c = BOX["bottom"] + RES * (np.arange(shape[0]) + 0.5)
     lo_c = BOX["left"] + RES * (np.arange(shape[1]) + 0.5)
@@ -265,7 +270,7 @@ def run_arome(put):
             block = ir[:, :, a:a + 100, b:b + 100]
             if (block == 255).all():
                 continue
-            hdr = b"LCFC" + struct.pack("<HqIHHfffHH", 1, ref_unix, 3600, HOURS + 1, 1, float(la), float(lo), 0.05, 100, 100)
+            hdr = b"LCFC" + struct.pack("<HqIHHfffHH", 1, ref_unix, 3600, HOURS + 1, 2, float(la), float(lo), 0.05, 100, 100)
             c = zlib.compressobj(9, zlib.DEFLATED, -15)
             files[f"{PREFIX_IR}{la}_{lo}.bin"] = hdr + c.compress(np.ascontiguousarray(block).tobytes()) + c.flush()
     meta = {"model": "AROME 0,01°", "source": "Météo-France", "licence": "Licence Ouverte 2.0",
