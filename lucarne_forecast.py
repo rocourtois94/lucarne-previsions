@@ -276,10 +276,7 @@ if __name__ == "__main__":
     errors = 0
     jobs = (("nuages", main),
             ("seeing", lambda: __import__("seeing").run_seeing(upload)),
-            # AROME : le plus long (≈ 10 min) ; 2 passages par jour suffisent (dépôt privé : 2 000 min d'Actions par mois)
-            ("arome", lambda: __import__("arome").run_arome(upload)
-             if os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch" or dt.datetime.now(dt.timezone.utc).hour in (10, 16)
-             else print("AROME : pas à ce passage (10 h et 16 h UTC seulement)")),
+            ("arome", lambda: __import__("arome").run_arome(upload)),     # dépôt public : minutes d'Actions illimitées
             ("ecmwf", lambda: __import__("ecmwf").run_ecmwf(upload)))
     for name, job in jobs:
         try:
