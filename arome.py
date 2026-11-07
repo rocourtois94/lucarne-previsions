@@ -33,7 +33,9 @@ IR_R0, IR_C0 = 50, 60      # décalage dans la grille 35° N / 15° O
 LAT_N, LON_W, STEP, NJ, NI = 55.4, -12.0, 0.01, 1791, 2801
 WANT = {(6, 3): 1, (6, 4): 2, (6, 5): 3}                # (catégorie, numéro) GRIB2 → variable : basse, moyenne, haute
 SP1 = {(0, 0): "t", (1, 1): "rh", (2, 2): "u", (2, 3): "v", (2, 23): "gu", (2, 24): "gv"}
-VARS = ["CLCT", "CLCL", "CLCM", "CLCH", "T2M", "TD2M", "WIND", "GUST", "TQV"]
+VARS = ["CLCT", "CLCL", "CLCM", "CLCH", "T2M", "TD2M", "WIND", "GUST", "TQV", "TSURF", "BLH"]
+# TSURF : température du sol (°C, codage celsius) ; BLH : hauteur de la couche limite (m / 20) — paquet SP2 0,025°,
+# pour l'estimation expérimentale du seeing près du sol (inversion = T2M − TSURF)
 # Grille 0,025° (EURW1S40) pour la vapeur d'eau
 NJ25, NI25 = 717, 1121
 GROUPS = [(0, 6), (7, 12), (13, 18), (19, 24), (25, 30), (31, 36), (37, 42), (43, 48), (49, 51)]
@@ -215,6 +217,34 @@ def run_arome(put):
             for st, v in res:
                 if 0 <= st <= HOURS:
                     cube[st, VARS.index("TQV")] = codage.vapour_mm(v)
+
+    def sp2(group):
+        a, b = group
+        r = run.strftime("%Y-%m-%dT%H:%M:%SZ")
+        u = f"{BASE}/{r}/arome/0025/SP2/arome__0025__SP2__{a:02d}H{b:02d}H__{r}.grib2"
+        res = []
+        try:
+            for o, n, k in messages(u):
+                if k in ((3, 18), (0, 0)):
+                    d = get(u, (o, o + n - 1))
+                    h = eccodes.codes_new_from_message(d)
+                    try:
+                        lev = eccodes.codes_get(h, "typeOfLevel")
+                    finally:
+                        eccodes.codes_release(h)
+                    if k == (0, 0) and lev != "surface":
+                        continue
+                    res.append(("BLH" if k == (3, 18) else "TSURF", step_of(d), field(d, NJ25, NI25, pct=False)[np.ix_(ii, jj)]))
+        except Exception as e:
+            print("AROME SP2 0,025", group, ":", e)
+        return res
+
+    with cf.ThreadPoolExecutor(5) as ex:
+        for res in ex.map(sp2, GROUPS):
+            for name, st, v in res:
+                if 0 <= st <= HOURS:
+                    cube[st, VARS.index(name)] = (codage.celsius(v - 273.15) if name == "TSURF"
+                                                  else codage._u8(v / 20))
     print("AROME : téléchargé et regrillé en", round(time.time() - t0), "s")
     ref_unix = int(run.timestamp())
     n = int(round(TILE / RES))

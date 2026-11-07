@@ -47,7 +47,8 @@ Remplace la nébulosité GFS pour la carte « Meilleur ciel ». CC BY 4.0 — «
 Codage sur un octet décrit dans `codage.py` (255 = inconnu).
 Fichiers séparés (la carte ne télécharge que les nuages) :
 - `fc1/ch2/` (5 variables : CLCT, CLCL, CLCM, CLCH, CDCT) et `fc1/ch2w/` (6 : T2M, TD2M, WIND, GUST, TQV, TQI).
-- `fc1/arome/` (4 : CLCT, CLCL, CLCM, CLCH) et `fc1/aromew/` (5 : T2M, TD2M calculé d'après l'humidité, WIND, GUST, TQV 0,025°).
+- `fc1/arome/` (4 : CLCT, CLCL, CLCM, CLCH) et `fc1/aromew/` (7 : T2M, TD2M calculé d'après l'humidité, WIND, GUST, TQV, TSURF, BLH — les trois derniers à 0,025°).
+- `fc1/seeing/` : 4e variable = seeing de l'atmosphère libre seule (pour l'estimation expérimentale près du sol de l'app).
 
 ## « Satellite prévu » (depuis le 7/11/2026)
 `arome.py` produit aussi `fc1/ir/<lat>_<lon>.bin` : morceaux 5° × 5° (35–60° N, 15° O–20° E), pas 0,05°, 52 h,

@@ -126,7 +126,7 @@ def seeing_field(f):
     bl = 0.9 + 0.08 * np.clip(w10, 0, 15)
     total = (free ** (5 / 3) + bl ** (5 / 3)) ** (3 / 5)
     jet = np.maximum.reduce([np.hypot(f[("u", l)], f[("v", l)]) for l in (300, 250, 200) if ("u", l) in f])
-    return total, jet
+    return total, jet, free
 
 
 def run_seeing(put):
@@ -138,12 +138,12 @@ def run_seeing(put):
     def work(step):
         data = fetch(filter_url(run, step))
         f, shape = decode(data)
-        s, j = seeing_field(f)
-        return step, s, j, f.get(("tcc", "atm")), shape
+        s, j, fr = seeing_field(f)
+        return step, s, j, f.get(("tcc", "atm")), shape, fr
 
     with cf.ThreadPoolExecutor(4) as ex:                  # NOMADS limite le nombre de requêtes
-        for step, s, j, c, shape in ex.map(work, STEPS):
-            results[step] = (s, j, c)
+        for step, s, j, c, shape, fr in ex.map(work, STEPS):
+            results[step] = (s, j, c, fr)
             grid = shape
     nj, ni, lat1, lat2, lon1 = grid
     # Lignes dans l'ordre du fichier (sud→nord ou nord→sud selon le sens de balayage) ; on remet du sud au nord
@@ -151,12 +151,13 @@ def run_seeing(put):
     order = np.argsort(lats)
     lats = lats[order]
     lons = ((lon1 + 0.25 * np.arange(ni)) + 180) % 360 - 180
-    cube = np.zeros((len(STEPS), 3, nj, ni), np.uint8)
+    cube = np.zeros((len(STEPS), 4, nj, ni), np.uint8)
     for si, st in enumerate(STEPS):
-        s, j, c = results[st]
+        s, j, c, fr = results[st]
         cube[si, 0] = np.clip(np.rint(s[order] / 0.05), 0, 254)
         cube[si, 1] = np.clip(np.rint(j[order]), 0, 254)
         cube[si, 2] = 255 if c is None else np.clip(np.rint(c[order]), 0, 100)     # nuages %, 255 = inconnu
+        cube[si, 3] = np.clip(np.rint(fr[order] / 0.05), 0, 254)    # seeing de l'atmosphère libre (sans la couche limite)
     print("Seeing calculé en", round(time.time() - t0), "s ; Saint-Julien +12 h :",
           round(float(results[12][0][order][np.argmin(abs(lats - 46.14)), np.argmin(abs(lons - 6.08))]), 2), "″")
     files = {}
@@ -168,13 +169,13 @@ def run_seeing(put):
             block = cube[:, :, i0:i0 + n, j0:j0 + n]
             if block.shape[2] < 2 or block.shape[3] < 2:
                 continue
-            hdr = b"LCSE" + struct.pack("<HqIHHfffHH", 1, ref_unix, 3 * 3600, len(STEPS), 3,
+            hdr = b"LCSE" + struct.pack("<HqIHHfffHH", 1, ref_unix, 3 * 3600, len(STEPS), 4,
                                        float(lats[i0]), float(lons[j0]), 0.25, block.shape[2], block.shape[3])
             c = zlib.compressobj(9, zlib.DEFLATED, -15)
             files[f"{PREFIX}{la}_{lo}.bin"] = hdr + c.compress(np.ascontiguousarray(block).tobytes()) + c.flush()
     meta = {"model": "GFS 0,25°", "source": "NOAA/NCEP (domaine public)", "method": "Dewan 1993 + couche limite moyenne",
             "reference": run.isoformat(), "generated": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
-            "steps_h": 3, "variables": ["seeing_0.05arcsec", "jet_m_s", "TCDC_percent"], "tiles": len(files)}
+            "steps_h": 3, "variables": ["seeing_0.05arcsec", "jet_m_s", "TCDC_percent", "free_seeing_0.05arcsec"], "tiles": len(files)}
     import json
     files[PREFIX + "latest.json"] = json.dumps(meta).encode()
     put(files)

@@ -6,6 +6,9 @@ T2M, TD2M (°C)             : (°C + 60) × 2, soit −60 … +65 °C au demi-de
 WIND, GUST (km/h)          : km/h arrondis, 0…250
 TQV, vapeur d'eau (mm)     : mm × 4, 0…62,5 mm (= kg/m²)
 TQI, glace nuageuse (g/m²) : g/m² / 2, 0…500 g/m²
+TSURF (°C)                 : comme T2M
+BLH, couche limite (m)     : m / 20, 0…5000 m
+Seeing (fc1/seeing/)       : 0,05″ ; variable 3 = atmosphère libre seule (sans la couche limite)
 """
 import numpy as np
 
