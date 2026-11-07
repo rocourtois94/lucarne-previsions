@@ -176,7 +176,7 @@ def run_arome(put):
             print("AROME SP1", h, ":", e)
         return h, out
 
-    with cf.ThreadPoolExecutor(8) as ex:
+    with cf.ThreadPoolExecutor(16) as ex:
         for h, out in ex.map(work, range(HOURS + 1)):
             if out is None:
                 print("AROME : échéance", h, "incomplète")
@@ -212,7 +212,7 @@ def run_arome(put):
             print("AROME TQV", group, ":", e)
         return res
 
-    with cf.ThreadPoolExecutor(5) as ex:
+    with cf.ThreadPoolExecutor(9) as ex:
         for res in ex.map(tqv, GROUPS):
             for st, v in res:
                 if 0 <= st <= HOURS:
@@ -239,7 +239,7 @@ def run_arome(put):
             print("AROME SP2 0,025", group, ":", e)
         return res
 
-    with cf.ThreadPoolExecutor(5) as ex:
+    with cf.ThreadPoolExecutor(9) as ex:
         for res in ex.map(sp2, GROUPS):
             for name, st, v in res:
                 if 0 <= st <= HOURS:
