@@ -22,7 +22,14 @@ from scipy.spatial import cKDTree
 
 STAC = "https://data.geo.admin.ch/api/stac/v1"
 COLL = "ch.meteoschweiz.ogd-forecasting-icon-ch2"
-VARS = ["CLCT", "CLCL", "CLCM", "CLCH", "CDCT"]
+VARS = ["CLCT", "CLCL", "CLCM", "CLCH", "CDCT", "T2M", "TD2M", "WIND", "GUST", "TQV", "TQI"]
+# Paramètres ICON à télécharger pour chaque variable de sortie, et codage sur un octet (voir codage.py)
+import codage
+INPUTS = {"CLCT": ["CLCT"], "CLCL": ["CLCL"], "CLCM": ["CLCM"], "CLCH": ["CLCH"], "CDCT": ["CDCT"],
+          "T2M": ["T_2M"], "TD2M": ["TD_2M"], "WIND": ["U_10M", "V_10M"], "GUST": ["VMAX_10M"],
+          "TQV": ["TQV"], "TQI": ["TQI"]}
+ENCODE = {"T2M": codage.kelvin, "TD2M": codage.kelvin, "WIND": codage.wind_kmh, "GUST": codage.kmh_from_ms,
+          "TQV": codage.vapour_mm, "TQI": codage.ice_gm2}
 # CDCT : sommet des nuages au-dessus de la mer (m), codé par pas de 20 m (1…250 = 20…5000 m, 250 = 5000 m ou plus),
 # 0 = pas de nuage. Sert à savoir si une mer de brouillard / stratus est SOUS le lieu (lieu en altitude).
 TOP_STEP = 20
@@ -157,20 +164,25 @@ def main():
     cube = np.full((nh, len(VARS)) + GLAT.shape, 255, np.uint8)
 
     jobs = []
+    urls = {p: asset_urls(ref, p) for v in VARS for p in INPUTS[v]}
     for vi, v in enumerate(VARS):
-        for h, u in asset_urls(ref, v).items():
-            if 0 <= h <= HOURS:
-                jobs.append((vi, h, u))
-    print(len(jobs), "fichiers")
+        params = INPUTS[v]
+        for h in range(HOURS + 1):
+            if all(h in urls[p] for p in params):
+                jobs.append((vi, h, [urls[p][h] for p in params]))
+    print(len(jobs), "échéances × variables")
 
     def work(job):
-        vi, h, u = job
-        vals = grib_values(download(u))
-        if VARS[vi] == "CDCT":
-            v = vals[idx]
+        vi, h, us = job
+        fields = [grib_values(download(u))[idx] for u in us]
+        name = VARS[vi]
+        if name == "CDCT":
+            v = fields[0]
             g = np.where(v < 0, 0, np.clip(np.rint(v / TOP_STEP), 1, 250)).astype(np.uint8)
+        elif name in ENCODE:
+            g = ENCODE[name](*fields)
         else:
-            g = np.clip(np.rint(vals[idx]), 0, 100).astype(np.uint8)
+            g = np.clip(np.rint(fields[0]), 0, 100).astype(np.uint8)
         g[far] = 255
         return vi, h, g
 

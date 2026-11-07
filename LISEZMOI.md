@@ -41,3 +41,9 @@ pas 1 h). Licence Ouverte 2.0 — « Source : Météo-France ».
 `ecmwf.py` : données ouvertes ECMWF, nébulosité tcc, lcc, mcc, hcc, toutes les 3 h jusqu'à 72 h, Europe (35–72° N,
 25° O–45° E). Morceaux 5° × 5° bords inclus (51 × 51 points) `fc1/ec/<lat>_<lon>.bin`, format « LCFC » (pas 3 h).
 Remplace la nébulosité GFS pour la carte « Meilleur ciel ». CC BY 4.0 — « Source : ECMWF ».
+
+
+## Variables météo ajoutées (7/11/2026)
+Codage sur un octet décrit dans `codage.py` (255 = inconnu).
+- `fc1/ch2/` (11 variables) : CLCT, CLCL, CLCM, CLCH, CDCT, T2M, TD2M, WIND, GUST, TQV, TQI.
+- `fc1/arome/` (9 variables) : CLCT, CLCL, CLCM, CLCH, T2M, TD2M (calculé d'après l'humidité), WIND, GUST, TQV (0,025°).

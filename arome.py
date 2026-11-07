@@ -5,8 +5,9 @@
     grâce aux requêtes partielles (Range) : environ 5 Mo par heure au lieu de 17 ;
  3. ramène la grille à 0,02° (moyenne de 2 × 2 points) sur la France et ses abords ;
  4. découpe en morceaux de 1° × 1° « LCFC » (même format que MeteoSwiss) dans R2 : fc1/arome/<lat>_<lon>.bin.
-Variables : CLCT (calculée : recouvrement aléatoire des trois étages, AROME ne la publie pas dans ce paquet),
-CLCL, CLCM, CLCH, en %, 255 = hors domaine.
+Variables (codage dans codage.py, 255 = inconnu) : CLCT (calculée : recouvrement aléatoire des trois étages, AROME
+ne la publie pas dans ce paquet), CLCL, CLCM, CLCH (%) ; T2M, TD2M (point de rosée calculé d'après l'humidité),
+WIND, GUST (rafales max de l'heure) — paquet SP1 0,01° ; TQV (vapeur d'eau de la colonne) — paquet SP3 0,025°.
 
 Données : Météo-France, Licence Ouverte / Open Licence 2.0 (« Source : Météo-France »).
 """
@@ -16,6 +17,7 @@ import json, struct, time, urllib.request, zlib
 
 import numpy as np
 import eccodes
+import codage
 
 BASE = "https://meteofrance-pnt.s3.rbx.io.cloud.ovh.net/pnt"
 HOURS = 51
@@ -26,6 +28,11 @@ PREFIX = "fc1/arome/"
 # Grille EURW1S100 : 55,4° N → 37,5° N (du nord au sud), 12° O → 16° E, pas 0,01°
 LAT_N, LON_W, STEP, NJ, NI = 55.4, -12.0, 0.01, 1791, 2801
 WANT = {(6, 3): 1, (6, 4): 2, (6, 5): 3}                # (catégorie, numéro) GRIB2 → variable : basse, moyenne, haute
+SP1 = {(0, 0): "t", (1, 1): "rh", (2, 2): "u", (2, 3): "v", (2, 23): "gu", (2, 24): "gv"}
+VARS = ["CLCT", "CLCL", "CLCM", "CLCH", "T2M", "TD2M", "WIND", "GUST", "TQV"]
+# Grille 0,025° (EURW1S40) pour la vapeur d'eau
+NJ25, NI25 = 717, 1121
+GROUPS = [(0, 6), (7, 12), (13, 18), (19, 24), (25, 30), (31, 36), (37, 42), (43, 48), (49, 51)]
 
 
 def url(run, h):
@@ -87,14 +94,23 @@ def messages(u):
         off += total
 
 
-def field(data):
+def field(data, nj=NJ, ni=NI, pct=True):
     h = eccodes.codes_new_from_message(data)
     try:
-        v = eccodes.codes_get_values(h).reshape(NJ, NI)
+        v = eccodes.codes_get_values(h).reshape(nj, ni)
+        miss = eccodes.codes_get(h, "missingValue")
     finally:
         eccodes.codes_release(h)
-    v = np.where(v > 100.5, np.nan, v)                    # 9999 = hors domaine du modèle
+    v = np.where((v > 100.5) if pct else (v == miss), np.nan, v)       # 9999 = hors domaine du modèle
     return v[::-1]                                       # du sud au nord
+
+
+def step_of(data):
+    h = eccodes.codes_new_from_message(data)
+    try:
+        return int(eccodes.codes_get(h, "step"))
+    finally:
+        eccodes.codes_release(h)
 
 
 def run_arome(put):
@@ -106,7 +122,8 @@ def run_arome(put):
     j0 = int(round((BOX["left"] - LON_W) / STEP))
     ni_, nj_ = int(round((BOX["right"] - BOX["left"]) / STEP)), int(round((BOX["top"] - BOX["bottom"]) / STEP))
     shape = (nj_ // 2, ni_ // 2)
-    cube = np.full((HOURS + 1, 4) + shape, 255, np.uint8)
+    cube = np.full((HOURS + 1, len(VARS)) + shape, 255, np.uint8)
+    blk = lambda v: v.reshape(shape[0], 2, shape[1], 2).mean(axis=(1, 3))     # 0,01° → 0,02°
 
     def work(h):
         u = url(run, h)
@@ -116,8 +133,25 @@ def run_arome(put):
         out = {}
         for k, (o, n) in msgs.items():
             v = field(get(u, (o, o + n - 1)))[i0:i0 + nj_, j0:j0 + ni_]
-            v = v.reshape(shape[0], 2, shape[1], 2).mean(axis=(1, 3)) / 100          # 0,02° : moyenne de 2 × 2
-            out[WANT[k]] = v
+            out[WANT[k]] = blk(v) / 100
+        # Température, humidité, vent, rafales (paquet SP1)
+        try:
+            u1 = u.replace("SP2", "SP1")
+            w = {}
+            for o, n, k in messages(u1):
+                if k in SP1:
+                    w[SP1[k]] = blk(field(get(u1, (o, o + n - 1)), pct=False)[i0:i0 + nj_, j0:j0 + ni_])
+            if "t" in w:
+                tc = w["t"] - 273.15 if np.nanmean(w["t"]) > 150 else w["t"]
+                out["T2M"] = codage.celsius(tc)
+                if "rh" in w:
+                    out["TD2M"] = codage.celsius(codage.dewpoint_c(tc, w["rh"]))
+            if "u" in w and "v" in w:
+                out["WIND"] = codage.wind_kmh(w["u"], w["v"])
+            if "gu" in w and "gv" in w:
+                out["GUST"] = codage.wind_kmh(w["gu"], w["gv"])
+        except Exception as e:
+            print("AROME SP1", h, ":", e)
         return h, out
 
     with cf.ThreadPoolExecutor(8) as ex:
@@ -130,6 +164,34 @@ def run_arome(put):
             for vi, v in enumerate((tot, lo, mi, hi)):
                 g = np.where(np.isnan(v), 255, np.clip(np.rint(v * 100), 0, 100)).astype(np.uint8)
                 cube[h, vi] = g
+            for name in ("T2M", "TD2M", "WIND", "GUST"):
+                if name in out:
+                    cube[h, VARS.index(name)] = out[name]
+    # Vapeur d'eau de la colonne (0,025°, fichiers de 6 h) : plus proche point de la grille 0,025°
+    la_c = BOX["bottom"] + RES * (np.arange(shape[0]) + 0.5)
+    lo_c = BOX["left"] + RES * (np.arange(shape[1]) + 0.5)
+    ii = np.clip(np.rint((la_c - (LAT_N - (NJ25 - 1) * 0.025)) / 0.025).astype(int), 0, NJ25 - 1)
+    jj = np.clip(np.rint((lo_c - LON_W) / 0.025).astype(int), 0, NI25 - 1)
+
+    def tqv(group):
+        a, b = group
+        r = run.strftime("%Y-%m-%dT%H:%M:%SZ")
+        u = f"{BASE}/{r}/arome/0025/SP3/arome__0025__SP3__{a:02d}H{b:02d}H__{r}.grib2"
+        res = []
+        try:
+            for o, n, k in messages(u):
+                if k == (1, 64):
+                    d = get(u, (o, o + n - 1))
+                    res.append((step_of(d), field(d, NJ25, NI25, pct=False)[np.ix_(ii, jj)]))
+        except Exception as e:
+            print("AROME TQV", group, ":", e)
+        return res
+
+    with cf.ThreadPoolExecutor(5) as ex:
+        for res in ex.map(tqv, GROUPS):
+            for st, v in res:
+                if 0 <= st <= HOURS:
+                    cube[st, VARS.index("TQV")] = codage.vapour_mm(v)
     print("AROME : téléchargé et regrillé en", round(time.time() - t0), "s")
     ref_unix = int(run.timestamp())
     n = int(round(TILE / RES))
@@ -140,12 +202,12 @@ def run_arome(put):
             block = cube[:, :, a:a + n, b:b + n]
             if block.shape[2] < n or block.shape[3] < n or (block == 255).all():
                 continue
-            hdr = b"LCFC" + struct.pack("<HqIHHfffHH", 1, ref_unix, 3600, HOURS + 1, 4, float(la), float(lo), RES, n, n)
+            hdr = b"LCFC" + struct.pack("<HqIHHfffHH", 1, ref_unix, 3600, HOURS + 1, len(VARS), float(la), float(lo), RES, n, n)
             c = zlib.compressobj(9, zlib.DEFLATED, -15)
             files[f"{PREFIX}{la}_{lo}.bin"] = hdr + c.compress(np.ascontiguousarray(block).tobytes()) + c.flush()
     meta = {"model": "AROME 0,01°", "source": "Météo-France", "licence": "Licence Ouverte 2.0",
             "reference": run.isoformat(), "generated": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
-            "variables": ["CLCT (calculée)", "CLCL", "CLCM", "CLCH"], "hours": HOURS + 1, "res": RES,
+            "variables": VARS, "note": "CLCT calculée ; codage : codage.py", "hours": HOURS + 1, "res": RES,
             "box": BOX, "tiles": len(files)}
     files[PREFIX + "latest.json"] = json.dumps(meta).encode()
     put(files)
