@@ -25,6 +25,7 @@ BOX = dict(bottom=41, top=52, left=-6, right=10)        # France métropolitaine
 RES = 0.02
 TILE = 1
 PREFIX = "fc1/arome/"
+PREFIX_W = "fc1/aromew/"   # météo : T2M, TD2M, WIND, GUST, TQV
 # Grille EURW1S100 : 55,4° N → 37,5° N (du nord au sud), 12° O → 16° E, pas 0,01°
 LAT_N, LON_W, STEP, NJ, NI = 55.4, -12.0, 0.01, 1791, 2801
 WANT = {(6, 3): 1, (6, 4): 2, (6, 5): 3}                # (catégorie, numéro) GRIB2 → variable : basse, moyenne, haute
@@ -202,9 +203,10 @@ def run_arome(put):
             block = cube[:, :, a:a + n, b:b + n]
             if block.shape[2] < n or block.shape[3] < n or (block == 255).all():
                 continue
-            hdr = b"LCFC" + struct.pack("<HqIHHfffHH", 1, ref_unix, 3600, HOURS + 1, len(VARS), float(la), float(lo), RES, n, n)
-            c = zlib.compressobj(9, zlib.DEFLATED, -15)
-            files[f"{PREFIX}{la}_{lo}.bin"] = hdr + c.compress(np.ascontiguousarray(block).tobytes()) + c.flush()
+            for pre, part in ((PREFIX, block[:, :4]), (PREFIX_W, block[:, 4:])):     # nuages / météo
+                hdr = b"LCFC" + struct.pack("<HqIHHfffHH", 1, ref_unix, 3600, HOURS + 1, part.shape[1], float(la), float(lo), RES, n, n)
+                c = zlib.compressobj(9, zlib.DEFLATED, -15)
+                files[f"{pre}{la}_{lo}.bin"] = hdr + c.compress(np.ascontiguousarray(part).tobytes()) + c.flush()
     meta = {"model": "AROME 0,01°", "source": "Météo-France", "licence": "Licence Ouverte 2.0",
             "reference": run.isoformat(), "generated": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
             "variables": VARS, "note": "CLCT calculée ; codage : codage.py", "hours": HOURS + 1, "res": RES,

@@ -37,6 +37,8 @@ HOURS = 120
 RES = 0.02          # degrés
 TILE = 1            # degré
 PREFIX = "fc1/ch2/"
+PREFIX_W = "fc1/ch2w/"     # météo (T2M, TD2M, WIND, GUST, TQV, TQI)
+NCLOUD = 5                 # les 5 premières variables vont dans fc1/ch2/
 
 
 def http_json(url, body=None, tries=4):
@@ -200,11 +202,13 @@ def main():
             block = cube[:, :, i0:i0 + n, j0:j0 + n]
             if block.shape[2] < n or block.shape[3] < n or (block == 255).all():
                 continue
+            # Deux fichiers : nuages (fc1/ch2/, lus aussi par la carte) et météo (fc1/ch2w/, lus seulement pour les lieux)
             # En-tête : « LCFC », version, run (unix), pas (s), nb heures, nb variables, lat sud, lon ouest, pas (°), lignes, colonnes
-            hdr = b"LCFC" + struct.pack("<HqIHHfffHH", 1, ref_unix, 3600, nh, len(VARS),
-                                       float(la), float(lo), RES, n, n)
-            c = zlib.compressobj(9, zlib.DEFLATED, -15)          # DEFLATE brut (lu par Apple « .zlib »)
-            files[f"{PREFIX}{int(la)}_{int(lo)}.bin"] = hdr + c.compress(block.tobytes()) + c.flush()
+            for pre, part in ((PREFIX, block[:, :NCLOUD]), (PREFIX_W, block[:, NCLOUD:])):
+                hdr = b"LCFC" + struct.pack("<HqIHHfffHH", 1, ref_unix, 3600, nh, part.shape[1],
+                                           float(la), float(lo), RES, n, n)
+                c = zlib.compressobj(9, zlib.DEFLATED, -15)          # DEFLATE brut (lu par Apple « .zlib »)
+                files[f"{pre}{int(la)}_{int(lo)}.bin"] = hdr + c.compress(np.ascontiguousarray(part).tobytes()) + c.flush()
     meta = {"model": "ICON-CH2-EPS (contrôle)", "source": "MeteoSwiss", "licence": "CC BY 4.0",
             "reference": ref, "generated": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
             "variables": VARS, "cdct_step_m": TOP_STEP, "hours": nh, "lat": [float(lat0), float(lat1 + 1)], "lon": [float(lon0), float(lon1 + 1)],
