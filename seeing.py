@@ -47,12 +47,13 @@ def latest_gfs_run():
 
 def filter_url(run, step):
     q = {"dir": f"/gfs.{run:%Y%m%d}/{run:%H}/atmos", "file": f"gfs.t{run:%H}z.pgrb2.0p25.f{step:03d}",
-         "var_UGRD": "on", "var_VGRD": "on", "var_TMP": "on", "var_HGT": "on", "subregion": "",
+         "var_UGRD": "on", "var_VGRD": "on", "var_TMP": "on", "var_HGT": "on", "var_TCDC": "on", "subregion": "",
          "toplat": BOX["top"], "bottomlat": BOX["bottom"], "leftlon": BOX["left"], "rightlon": BOX["right"]}
     for l in LEVELS:
         q[f"lev_{l}_mb"] = "on"
     q["lev_10_m_above_ground"] = "on"
     q["lev_surface"] = "on"
+    q["lev_entire_atmosphere"] = "on"                     # nébulosité totale (carte du meilleur ciel)
     return "https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_0p25.pl?" + urllib.parse.urlencode(q)
 
 
@@ -77,14 +78,18 @@ def decode(data):
         tl = eccodes.codes_get(h, "typeOfLevel")
         lev = eccodes.codes_get(h, "level")
         ni, nj = eccodes.codes_get(h, "Ni"), eccodes.codes_get(h, "Nj")
+        step_type = eccodes.codes_get(h, "stepType")
         v = eccodes.codes_get_values(h).reshape(nj, ni)
         if shape is None:
             lat1 = eccodes.codes_get(h, "latitudeOfFirstGridPointInDegrees")
             lat2 = eccodes.codes_get(h, "latitudeOfLastGridPointInDegrees")
             lon1 = eccodes.codes_get(h, "longitudeOfFirstGridPointInDegrees")
             shape = (nj, ni, lat1, lat2, lon1)
-        key = (name, "sfc" if tl == "surface" else lev)
-        out[key] = v
+        if name == "tcc" and tl in ("atmosphere", "entireAtmosphere"):
+            if step_type == "instant":                    # on garde la valeur à l'heure dite, pas la moyenne sur 3–6 h
+                out[("tcc", "atm")] = v
+        elif name != "tcc":
+            out[(name, "sfc" if tl == "surface" else lev)] = v
         eccodes.codes_release(h)
         pos += n
     return out, shape
@@ -134,11 +139,11 @@ def run_seeing(put):
         data = fetch(filter_url(run, step))
         f, shape = decode(data)
         s, j = seeing_field(f)
-        return step, s, j, shape
+        return step, s, j, f.get(("tcc", "atm")), shape
 
     with cf.ThreadPoolExecutor(4) as ex:                  # NOMADS limite le nombre de requêtes
-        for step, s, j, shape in ex.map(work, STEPS):
-            results[step] = (s, j)
+        for step, s, j, c, shape in ex.map(work, STEPS):
+            results[step] = (s, j, c)
             grid = shape
     nj, ni, lat1, lat2, lon1 = grid
     # Lignes dans l'ordre du fichier (sud→nord ou nord→sud selon le sens de balayage) ; on remet du sud au nord
@@ -146,11 +151,12 @@ def run_seeing(put):
     order = np.argsort(lats)
     lats = lats[order]
     lons = ((lon1 + 0.25 * np.arange(ni)) + 180) % 360 - 180
-    cube = np.zeros((len(STEPS), 2, nj, ni), np.uint8)
+    cube = np.zeros((len(STEPS), 3, nj, ni), np.uint8)
     for si, st in enumerate(STEPS):
-        s, j = results[st]
+        s, j, c = results[st]
         cube[si, 0] = np.clip(np.rint(s[order] / 0.05), 0, 254)
         cube[si, 1] = np.clip(np.rint(j[order]), 0, 254)
+        cube[si, 2] = 255 if c is None else np.clip(np.rint(c[order]), 0, 100)     # nuages %, 255 = inconnu
     print("Seeing calculé en", round(time.time() - t0), "s ; Saint-Julien +12 h :",
           round(float(results[12][0][order][np.argmin(abs(lats - 46.14)), np.argmin(abs(lons - 6.08))]), 2), "″")
     files = {}
@@ -162,13 +168,13 @@ def run_seeing(put):
             block = cube[:, :, i0:i0 + n, j0:j0 + n]
             if block.shape[2] < 2 or block.shape[3] < 2:
                 continue
-            hdr = b"LCSE" + struct.pack("<HqIHHfffHH", 1, ref_unix, 3 * 3600, len(STEPS), 2,
+            hdr = b"LCSE" + struct.pack("<HqIHHfffHH", 1, ref_unix, 3 * 3600, len(STEPS), 3,
                                        float(lats[i0]), float(lons[j0]), 0.25, block.shape[2], block.shape[3])
             c = zlib.compressobj(9, zlib.DEFLATED, -15)
             files[f"{PREFIX}{la}_{lo}.bin"] = hdr + c.compress(np.ascontiguousarray(block).tobytes()) + c.flush()
     meta = {"model": "GFS 0,25°", "source": "NOAA/NCEP (domaine public)", "method": "Dewan 1993 + couche limite moyenne",
             "reference": run.isoformat(), "generated": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
-            "steps_h": 3, "tiles": len(files)}
+            "steps_h": 3, "variables": ["seeing_0.05arcsec", "jet_m_s", "TCDC_percent"], "tiles": len(files)}
     import json
     files[PREFIX + "latest.json"] = json.dumps(meta).encode()
     put(files)

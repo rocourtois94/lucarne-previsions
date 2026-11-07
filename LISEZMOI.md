@@ -24,3 +24,6 @@ Modèle **GFS 0,25°** (NOAA/NCEP, domaine public) via le filtre NOMADS (Europe 
 jusqu'à 120 h). Méthode de Dewan (1993) sur les couches entre niveaux de pression + couche limite moyenne (0,9″,
 plus avec le vent à 10 m). Morceaux 5° × 5° `fc1/seeing/<lat>_<lon>.bin`, en-tête « LCSE » identique à « LCFC »
 (pas 3 h, 2 variables : seeing en 0,05″, vent du courant-jet en m/s ; grille 0,25°, bords inclus, 21 × 21 points).
+
+### Nuages GFS (dans les morceaux seeing)
+Depuis le 7/11/2026, chaque morceau `fc1/seeing/` contient 3 variables : seeing (0,05″), courant-jet (m/s) et nébulosité totale GFS (TCDC, % instantané, 255 = inconnu). Sert à la carte « Meilleur ciel » de l'app hors du domaine MeteoSwiss.
