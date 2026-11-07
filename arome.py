@@ -26,6 +26,9 @@ RES = 0.02
 TILE = 1
 PREFIX = "fc1/arome/"
 PREFIX_W = "fc1/aromew/"   # météo : T2M, TD2M, WIND, GUST, TQV
+PREFIX_IR = "fc1/ir/"      # « satellite prévu » : écart T(2 m) − température de brillance 10,8 µm, en 0,5 K, 0,05°, morceaux 5°
+IR_NJ, IR_NI = 358, 560    # grille 0,05° du domaine AROME (37,5–55,4° N, 12° O–16° E)
+IR_R0, IR_C0 = 50, 60      # décalage dans la grille 35° N / 15° O
 # Grille EURW1S100 : 55,4° N → 37,5° N (du nord au sud), 12° O → 16° E, pas 0,01°
 LAT_N, LON_W, STEP, NJ, NI = 55.4, -12.0, 0.01, 1791, 2801
 WANT = {(6, 3): 1, (6, 4): 2, (6, 5): 3}                # (catégorie, numéro) GRIB2 → variable : basse, moyenne, haute
@@ -125,6 +128,8 @@ def run_arome(put):
     shape = (nj_ // 2, ni_ // 2)
     cube = np.full((HOURS + 1, len(VARS)) + shape, 255, np.uint8)
     blk = lambda v: v.reshape(shape[0], 2, shape[1], 2).mean(axis=(1, 3))     # 0,01° → 0,02°
+    # Image infrarouge : tout le domaine AROME à 0,05°, placé dans une grille 35–60° N, 15° O–20° E (morceaux de 5°)
+    ir = np.full((HOURS + 1, 1, 500, 700), 255, np.uint8)
 
     def work(h):
         u = url(run, h)
@@ -139,9 +144,23 @@ def run_arome(put):
         try:
             u1 = u.replace("SP2", "SP1")
             w = {}
+            tfull = None
             for o, n, k in messages(u1):
                 if k in SP1:
-                    w[SP1[k]] = blk(field(get(u1, (o, o + n - 1)), pct=False)[i0:i0 + nj_, j0:j0 + ni_])
+                    full = field(get(u1, (o, o + n - 1)), pct=False)
+                    if SP1[k] == "t":
+                        tfull = full
+                    w[SP1[k]] = blk(full[i0:i0 + nj_, j0:j0 + ni_])
+            # « Satellite prévu » : image infrarouge simulée (canal 10,8 µm, paquet SP3), comparée à la température
+            # au sol : écart ≈ 0 par ciel clair, grand pour un nuage haut et épais (sommet froid)
+            if tfull is not None:
+                u3 = u.replace("SP2", "SP3")
+                for o, n, k in messages(u3):
+                    if k == (5, 7):
+                        bt = field(get(u3, (o, o + n - 1)), pct=False)
+                        d = (tfull - bt)[:IR_NJ * 5, :IR_NI * 5].reshape(IR_NJ, 5, IR_NI, 5)
+                        out["IR"] = np.nanmean(d, axis=(1, 3))
+                        break
             if "t" in w:
                 tc = w["t"] - 273.15 if np.nanmean(w["t"]) > 150 else w["t"]
                 out["T2M"] = codage.celsius(tc)
@@ -168,6 +187,9 @@ def run_arome(put):
             for name in ("T2M", "TD2M", "WIND", "GUST"):
                 if name in out:
                     cube[h, VARS.index(name)] = out[name]
+            if "IR" in out:
+                v = out["IR"]
+                ir[h, 0, IR_R0:IR_R0 + IR_NJ, IR_C0:IR_C0 + IR_NI] = np.where(np.isnan(v), 255, np.clip(np.rint(v * 2), 0, 250))
     # Vapeur d'eau de la colonne (0,025°, fichiers de 6 h) : plus proche point de la grille 0,025°
     la_c = BOX["bottom"] + RES * (np.arange(shape[0]) + 0.5)
     lo_c = BOX["left"] + RES * (np.arange(shape[1]) + 0.5)
@@ -207,6 +229,15 @@ def run_arome(put):
                 hdr = b"LCFC" + struct.pack("<HqIHHfffHH", 1, ref_unix, 3600, HOURS + 1, part.shape[1], float(la), float(lo), RES, n, n)
                 c = zlib.compressobj(9, zlib.DEFLATED, -15)
                 files[f"{pre}{la}_{lo}.bin"] = hdr + c.compress(np.ascontiguousarray(part).tobytes()) + c.flush()
+    for la in range(35, 60, 5):
+        for lo in range(-15, 20, 5):
+            a = (la - 35) * 20; b = (lo + 15) * 20
+            block = ir[:, :, a:a + 100, b:b + 100]
+            if (block == 255).all():
+                continue
+            hdr = b"LCFC" + struct.pack("<HqIHHfffHH", 1, ref_unix, 3600, HOURS + 1, 1, float(la), float(lo), 0.05, 100, 100)
+            c = zlib.compressobj(9, zlib.DEFLATED, -15)
+            files[f"{PREFIX_IR}{la}_{lo}.bin"] = hdr + c.compress(np.ascontiguousarray(block).tobytes()) + c.flush()
     meta = {"model": "AROME 0,01°", "source": "Météo-France", "licence": "Licence Ouverte 2.0",
             "reference": run.isoformat(), "generated": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
             "variables": VARS, "note": "CLCT calculée ; codage : codage.py", "hours": HOURS + 1, "res": RES,

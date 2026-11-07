@@ -48,3 +48,10 @@ Codage sur un octet décrit dans `codage.py` (255 = inconnu).
 Fichiers séparés (la carte ne télécharge que les nuages) :
 - `fc1/ch2/` (5 variables : CLCT, CLCL, CLCM, CLCH, CDCT) et `fc1/ch2w/` (6 : T2M, TD2M, WIND, GUST, TQV, TQI).
 - `fc1/arome/` (4 : CLCT, CLCL, CLCM, CLCH) et `fc1/aromew/` (5 : T2M, TD2M calculé d'après l'humidité, WIND, GUST, TQV 0,025°).
+
+## « Satellite prévu » (depuis le 7/11/2026)
+`arome.py` produit aussi `fc1/ir/<lat>_<lon>.bin` : morceaux 5° × 5° (35–60° N, 15° O–20° E), pas 0,05°, 52 h,
+1 variable : écart entre la température à 2 m et la température de brillance infrarouge 10,8 µm simulée par AROME
+(paquet SP3), en 0,5 K (0…250), 255 = hors domaine. ≈ 0 par ciel clair, grand pour un nuage haut et épais.
+Limite : le brouillard et les stratus bas, presque à la température du sol, apparaissent à peine (comme sur une vraie
+image infrarouge de nuit).
