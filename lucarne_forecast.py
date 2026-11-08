@@ -155,8 +155,9 @@ def main():
     # Passage toutes les heures : rien à faire si ce run est déjà publié (sauf FORCE=1)
     if not os.environ.get("FORCE"):
         try:
-            with urllib.request.urlopen(f"https://carte.photily.fr/{PREFIX}latest.json", timeout=20) as r:
-                pub = json.load(r).get("reference")
+            # Lu directement dans R2 (le site public refuse les robots sans navigateur)
+            s3, bucket = r2_client()
+            pub = json.loads(s3.get_object(Bucket=bucket, Key=PREFIX + "latest.json")["Body"].read()).get("reference")
             if pub == ref:
                 print("MeteoSwiss : run", ref, "déjà publié, rien à faire"); return
         except Exception as e:
