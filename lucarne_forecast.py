@@ -37,6 +37,7 @@ HOURS = 120
 RES = 0.02          # degrés
 TILE = 1            # degré
 PREFIX = "fc1/ch2/"
+PREFIX_H = "fc1/ch2h/"     # altitude du terrain du modèle (m / 20), pour choisir la case voisine à la bonne altitude
 PREFIX_W = "fc1/ch2w/"     # météo (T2M, TD2M, WIND, GUST, TQV, TQI)
 NCLOUD = 5                 # les 5 premières variables vont dans fc1/ch2/
 MODEL = "ICON-CH2-EPS"
@@ -130,7 +131,7 @@ def grid_coordinates():
     """Latitude et longitude des points de la grille ICON (fichier des constantes horizontales)."""
     d = http_json(f"{STAC}/collections/{COLL}")
     raw = download(d["assets"][CONST]["href"])
-    lat = lon = None
+    lat = lon = hs = None
     f = io.BytesIO(raw)
     pos = 0
     while pos < len(raw):
@@ -139,11 +140,12 @@ def grid_coordinates():
         key = (eccodes.codes_get(h, "discipline"), eccodes.codes_get(h, "parameterCategory"), eccodes.codes_get(h, "parameterNumber"))
         if key == (0, 191, 1): lat = eccodes.codes_get_values(h)
         if key == (0, 191, 2): lon = eccodes.codes_get_values(h)
+        if key == (0, 3, 6): hs = eccodes.codes_get_values(h)          # HSURF : altitude du terrain (m)
         eccodes.codes_release(h)
         pos += n
     if lat is None or lon is None:
         sys.exit("CLAT/CLON introuvables")
-    return lat, lon
+    return lat, lon, hs
 
 
 def unit(lat, lon):
@@ -166,7 +168,7 @@ def main():
                 print("MeteoSwiss : run", ref, "déjà publié, rien à faire"); return
         except Exception as e:
             print("MeteoSwiss : run publié inconnu (", str(e)[:80], "), calcul complet")
-    lat, lon = grid_coordinates()
+    lat, lon, hsurf = grid_coordinates()
     lat0, lat1 = np.floor(lat.min() + 0.2), np.floor(lat.max() - 0.2)       # bords exclus (moins fiables)
     lon0, lon1 = np.floor(lon.min() + 0.2), np.floor(lon.max() - 0.2)
     glat = np.arange(lat0, lat1 + 1, RES) + RES / 2                          # centres des cases
@@ -225,6 +227,19 @@ def main():
                                            float(la), float(lo), RES, n, n)
                 c = zlib.compressobj(9, zlib.DEFLATED, -15)          # DEFLATE brut (lu par Apple « .zlib »)
                 files[f"{pre}{int(la)}_{int(lo)}.bin"] = hdr + c.compress(np.ascontiguousarray(part).tobytes()) + c.flush()
+    # Altitude du terrain (une seule « heure », une variable) : seulement là où il y a la météo (ICON-CH2)
+    if hsurf is not None and len(VARS) > NCLOUD:
+        hg = np.clip(np.rint(hsurf[idx] / 20), 0, 250).astype(np.uint8)
+        hg[far] = 255
+        for la in np.arange(lat0, lat1 + 1, TILE):
+            for lo in np.arange(lon0, lon1 + 1, TILE):
+                i0 = int(round((la - lat0) / RES)); j0 = int(round((lo - lon0) / RES))
+                blk = hg[i0:i0 + n, j0:j0 + n]
+                if blk.shape[0] < n or blk.shape[1] < n or (blk == 255).all():
+                    continue
+                hdr = b"LCFC" + struct.pack("<HqIHHfffHH", 1, ref_unix, 3600, 1, 1, float(la), float(lo), RES, n, n)
+                c = zlib.compressobj(9, zlib.DEFLATED, -15)
+                files[f"{PREFIX_H}{int(la)}_{int(lo)}.bin"] = hdr + c.compress(np.ascontiguousarray(blk).tobytes()) + c.flush()
     meta = {"model": MODEL + " (contrôle)", "source": "MeteoSwiss", "licence": "CC BY 4.0",
             "reference": ref, "generated": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
             "variables": VARS, "cdct_step_m": TOP_STEP, "hours": nh, "lat": [float(lat0), float(lat1 + 1)], "lon": [float(lon0), float(lon1 + 1)],

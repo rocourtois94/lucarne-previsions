@@ -4,7 +4,11 @@ name: MeteoSwiss toutes les heures
 on:
   schedule:
     - cron: "40 * * * *"
-  workflow_dispatch: {}          # bouton « Run workflow » pour lancer à la main
+  workflow_dispatch:             # bouton « Run workflow » pour lancer à la main
+    inputs:
+      force:
+        description: "1 = recalculer même si le run est déjà publié"
+        default: ""
 concurrency:
   group: previsions
   cancel-in-progress: false
@@ -27,4 +31,5 @@ jobs:
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
           MF_VIGILANCE_KEY: ${{ secrets.MF_VIGILANCE_KEY }}     # facultatif : vigilance Météo-France
           JOBS: nuages,ch1
+          FORCE: ${{ inputs.force }}
         run: python lucarne_forecast.py
