@@ -19,4 +19,6 @@ jobs:
           MF_VIGILANCE_KEY: ${{ secrets.MF_VIGILANCE_KEY }}
           MF_PEAROME_KEY: ${{ secrets.MF_PEAROME_KEY }}
           MF_OBS_KEY: ${{ secrets.MF_OBS_KEY }}
+          MF_AROMEPI_KEY: ${{ secrets.MF_AROMEPI_KEY }}
+          MF_PAQUETOBS_KEY: ${{ secrets.MF_PAQUETOBS_KEY }}
         run: python ${{ inputs.script || 'explore_mf.py' }}
