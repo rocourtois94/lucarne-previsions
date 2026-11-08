@@ -58,7 +58,7 @@ def run_obs(put):
             continue
         if not isinstance(d, dict) or d.get("t") is None and d.get("n") is None:
             continue
-        out.append({"id": r[0], "name": r[2].strip().title(), "lat": float(r[3]), "lon": float(r[4]), "alt": int(float(r[5] or 0)),
+        out.append({"id": r[0], "name": r[2].strip().replace("_SAPC", "").replace("_", " ").title(), "lat": float(r[3]), "lon": float(r[4]), "alt": int(float(r[5] or 0)),
                     "time": d.get("validity_time"),
                     "t": num(d.get("t"), lambda x: x - 273.15), "td": num(d.get("td"), lambda x: x - 273.15),
                     "u": num(d.get("u"), nd=0), "ff": num(d.get("ff"), lambda x: x * 3.6, 0),
