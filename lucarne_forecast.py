@@ -39,6 +39,10 @@ TILE = 1            # degré
 PREFIX = "fc1/ch2/"
 PREFIX_W = "fc1/ch2w/"     # météo (T2M, TD2M, WIND, GUST, TQV, TQI)
 NCLOUD = 5                 # les 5 premières variables vont dans fc1/ch2/
+MODEL = "ICON-CH2-EPS"
+CONST = "horizontal_constants_icon-ch2-eps.grib2"
+FAR_DEG = 0.05             # au-delà, la case est hors du domaine du modèle
+ENS_PREFIX = "fc1/ch2e/"
 
 
 def http_json(url, body=None, tries=4):
@@ -125,7 +129,7 @@ def grib_values(data):
 def grid_coordinates():
     """Latitude et longitude des points de la grille ICON (fichier des constantes horizontales)."""
     d = http_json(f"{STAC}/collections/{COLL}")
-    raw = download(d["assets"]["horizontal_constants_icon-ch2-eps.grib2"]["href"])
+    raw = download(d["assets"][CONST]["href"])
     lat = lon = None
     f = io.BytesIO(raw)
     pos = 0
@@ -170,7 +174,7 @@ def main():
     GLON, GLAT = np.meshgrid(glon, glat)
     tree = cKDTree(unit(lat, lon))
     dist, idx = tree.query(unit(GLAT.ravel(), GLON.ravel()))
-    far = dist > np.radians(0.05)                                            # hors du domaine du modèle
+    far = dist > np.radians(FAR_DEG)                                            # hors du domaine du modèle
     idx = idx.reshape(GLAT.shape); far = far.reshape(GLAT.shape)
     nh = HOURS + 1
     cube = np.full((nh, len(VARS)) + GLAT.shape, 255, np.uint8)
@@ -215,11 +219,13 @@ def main():
             # Deux fichiers : nuages (fc1/ch2/, lus aussi par la carte) et météo (fc1/ch2w/, lus seulement pour les lieux)
             # En-tête : « LCFC », version, run (unix), pas (s), nb heures, nb variables, lat sud, lon ouest, pas (°), lignes, colonnes
             for pre, part in ((PREFIX, block[:, :NCLOUD]), (PREFIX_W, block[:, NCLOUD:])):
+                if part.shape[1] == 0:
+                    continue
                 hdr = b"LCFC" + struct.pack("<HqIHHfffHH", 1, ref_unix, 3600, nh, part.shape[1],
                                            float(la), float(lo), RES, n, n)
                 c = zlib.compressobj(9, zlib.DEFLATED, -15)          # DEFLATE brut (lu par Apple « .zlib »)
                 files[f"{pre}{int(la)}_{int(lo)}.bin"] = hdr + c.compress(np.ascontiguousarray(part).tobytes()) + c.flush()
-    meta = {"model": "ICON-CH2-EPS (contrôle)", "source": "MeteoSwiss", "licence": "CC BY 4.0",
+    meta = {"model": MODEL + " (contrôle)", "source": "MeteoSwiss", "licence": "CC BY 4.0",
             "reference": ref, "generated": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
             "variables": VARS, "cdct_step_m": TOP_STEP, "hours": nh, "lat": [float(lat0), float(lat1 + 1)], "lon": [float(lon0), float(lon1 + 1)],
             "tiles": len(files)}
@@ -235,6 +241,20 @@ def main():
     except Exception:
         import traceback
         print("Échec (ensemble) :"); traceback.print_exc()
+
+
+def run_ch1():
+    """ICON-CH1-EPS : 1 km, run toutes les 3 h, 33 h d'échéance, contrôle + 10 scénarios — nuages seulement
+    (fc1/ch1/, 0,01°) et probabilité de ciel dégagé (fc1/ch1e/). Même code que ICON-CH2, autres réglages."""
+    g = globals()
+    keep = {k: g[k] for k in ("COLL", "HOURS", "RES", "PREFIX", "PREFIX_W", "VARS", "MODEL", "CONST", "FAR_DEG", "ENS_PREFIX")}
+    g.update(COLL="ch.meteoschweiz.ogd-forecasting-icon-ch1", HOURS=33, RES=0.01, PREFIX="fc1/ch1/", PREFIX_W="fc1/ch1w/",
+             VARS=VARS[:NCLOUD], MODEL="ICON-CH1-EPS", CONST="horizontal_constants_icon-ch1-eps.grib2",
+             FAR_DEG=0.02, ENS_PREFIX="fc1/ch1e/")
+    try:
+        main()
+    finally:
+        g.update(keep)
 
 
 def r2_settings():
@@ -292,6 +312,7 @@ if __name__ == "__main__":
     import traceback
     errors = 0
     jobs = (("nuages", main),
+            ("ch1", run_ch1),
             ("seeing", lambda: __import__("seeing").run_seeing(upload)),
             ("arome", lambda: __import__("arome").run_arome(upload)),     # dépôt public : minutes d'Actions illimitées
             ("ecmwf", lambda: __import__("ecmwf").run_ecmwf(upload)),

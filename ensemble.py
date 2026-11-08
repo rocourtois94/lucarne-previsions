@@ -93,10 +93,10 @@ def run_ensemble(L, ref, idx, far, cube, lat0, lat1, lon0, lon1):
                 continue
             hdr = b"LCFC" + struct.pack("<HqIHHfffHH", 1, ref_unix, 3600, nh, len(NAMES), float(la), float(lo), L.RES, n, n)
             c = zlib.compressobj(9, zlib.DEFLATED, -15)
-            files[f"{PREFIX_E}{int(la)}_{int(lo)}.bin"] = hdr + c.compress(np.ascontiguousarray(block).tobytes()) + c.flush()
-    meta = {"model": "ICON-CH2-EPS (ensemble)", "source": "MeteoSwiss", "licence": "CC BY 4.0", "reference": ref,
+            files[f"{L.ENS_PREFIX}{int(la)}_{int(lo)}.bin"] = hdr + c.compress(np.ascontiguousarray(block).tobytes()) + c.flush()
+    meta = {"model": L.MODEL + " (ensemble)", "source": "MeteoSwiss", "licence": "CC BY 4.0", "reference": ref,
             "generated": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"), "variables": NAMES,
             "members": nm, "clear_below_pct": CLEAR, "tops_m": TOPS, "hours": nh, "tiles": len(files)}
-    files[PREFIX_E + "latest.json"] = json.dumps(meta).encode()
+    files[L.ENS_PREFIX + "latest.json"] = json.dumps(meta).encode()
     print("Ensemble :", len(files), "fichiers,", round(sum(map(len, files.values())) / 1e6, 1), "Mo")
     L.upload(files)
