@@ -152,6 +152,15 @@ def main():
     check_r2()
     ref = latest_reference()
     print("Run", ref)
+    # Passage toutes les heures : rien à faire si ce run est déjà publié (sauf FORCE=1)
+    if not os.environ.get("FORCE"):
+        try:
+            with urllib.request.urlopen(f"https://carte.photily.fr/{PREFIX}latest.json", timeout=20) as r:
+                pub = json.load(r).get("reference")
+            if pub == ref:
+                print("MeteoSwiss : run", ref, "déjà publié, rien à faire"); return
+        except Exception as e:
+            print("MeteoSwiss : run publié inconnu (", str(e)[:80], "), calcul complet")
     lat, lon = grid_coordinates()
     lat0, lat1 = np.floor(lat.min() + 0.2), np.floor(lat.max() - 0.2)       # bords exclus (moins fiables)
     lon0, lon1 = np.floor(lon.min() + 0.2), np.floor(lon.max() - 0.2)
@@ -287,7 +296,10 @@ if __name__ == "__main__":
             ("ecmwf", lambda: __import__("ecmwf").run_ecmwf(upload)),
             ("ens", lambda: __import__("ensemble_ec").run_ensemble_ec(upload)),
             ("vigilance", lambda: __import__("vigilance").run_vigilance(upload)))
+    only = {j.strip() for j in os.environ.get("JOBS", "").split(",") if j.strip()}
     for name, job in jobs:
+        if only and name not in only:
+            continue
         try:
             job()
         except SystemExit as e:
