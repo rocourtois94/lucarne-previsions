@@ -53,11 +53,11 @@ for p in ("/pearome/1.0/", "/pearome/1.0/wms/MF-NWP-HIGHRES-PEARO-0025-FRANCE-WM
     show(p, *get(BASE + p), n=200)
 
 print("=== Données d'observation ===")
-for p in ("/DPObs/v1/station/horaire?id_station=74182001&format=json",
-          "/DPObs/v1/station/infrahoraire-6m?id_station=74182001&format=json",
-          "/DPObs/liste-stations", "/DPObs/v1/liste-stations?format=json"):
+for p in ("/DPObs/v2/station/horaire?id_station=74182001&format=json",
+          "/DPObs/v2/station/infrahoraire-6m?id_station=74182001&format=json",
+          "/DPObs/v2/station/horaire?id_station=74182001&format=csv"):
     show(p, *get(BASE + p), n=300)
-code, body = get(f"{BASE}/DPObs/v1/liste-stations")
+code, body = get(f"{BASE}/DPObs/v2/liste-stations")
 show("liste-stations", code, body, 200)
 if code == 200:
     txt = body.decode("utf-8", "replace")
@@ -68,7 +68,7 @@ if code == 200:
             rows.append((s.get("id"), s.get("nom"), float(s.get("lat")), float(s.get("lon")), s.get("alt")))
     except Exception:
         lines = [l.split(";") for l in txt.splitlines() if l.strip()]
-        head = [h.strip().lower() for h in lines[0]]
+        head = [h.strip().lower() for h in lines[0]]; print("     exemple :", lines[1:3])
         print("     colonnes :", head)
         for l in lines[1:]:
             d = dict(zip(head, l))
@@ -86,6 +86,6 @@ if code == 200:
         print(f"     {r[0]}  {r[1]}  alt {r[4]}  à {km(r):.0f} km")
     if near:
         sid = near[0][0]
-        for p in (f"/DPObs/v1/station/horaire?id_station={sid}&format=json",
-                  f"/DPObs/v1/station/infrahoraire-6m?id_station={sid}&format=json"):
+        for p in (f"/DPObs/v2/station/horaire?id_station={sid}&format=json",
+                  f"/DPObs/v2/station/infrahoraire-6m?id_station={sid}&format=json"):
             show(p, *get(BASE + p), n=900)
