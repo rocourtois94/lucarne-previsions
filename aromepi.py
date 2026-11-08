@@ -78,6 +78,7 @@ def field(k, w, f, run, t):
     finally:
         eccodes.codes_release(h)
     v = np.where(v > 1e19, np.nan, v)
+    lo1 = (lo1 + 180) % 360 - 180                   # le GRIB donne 354° pour −6° : sans ça, toutes les colonnes valaient la 1re
     if not jpos:                                    # nord → sud : on remet du sud au nord
         v = v[::-1]; la1 = la1 - dj * (nj - 1)
     # Échantillonnage au plus proche sur la grille cible (0,025°, points aux multiples de 0,025)
