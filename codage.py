@@ -8,6 +8,7 @@ TQV, vapeur d'eau (mm)     : mm × 4, 0…62,5 mm (= kg/m²)
 TQI, glace nuageuse (g/m²) : g/m² / 2, 0…500 g/m²
 TSURF (°C)                 : comme T2M
 BLH, couche limite (m)     : m / 20, 0…5000 m
+PRECIP, pluie de l'heure   : mm × 10, 0…25 mm (fc1/aromew/, 12e variable)
 Seeing (fc1/seeing/)       : 0,05″ ; variable 3 = atmosphère libre seule (sans la couche limite)
 """
 import numpy as np

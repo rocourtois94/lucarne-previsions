@@ -56,3 +56,9 @@ Fichiers séparés (la carte ne télécharge que les nuages) :
 (paquet SP3), en 0,5 K (0…250), 255 = hors domaine ; (1) nébulosité basse AROME (%), pour montrer brouillard et stratus. ≈ 0 par ciel clair, grand pour un nuage haut et épais.
 Limite : le brouillard et les stratus bas, presque à la température du sol, apparaissent à peine (comme sur une vraie
 image infrarouge de nuit).
+
+## Pluie AROME et vigilance (depuis le 8/11/2026)
+- `fc1/aromew/` : 8e variable PRECIP = précipitations de l'heure écoulée (pluie + neige + grésil), mm × 10.
+- `fc1/vigilance.json` (`vigilance.py`) : carte de vigilance Météo-France en cours, par département. Nécessite le secret
+  GitHub `MF_VIGILANCE_KEY` (clé de l'API « Données publiques Vigilance », portail-api.meteofrance.fr) ; sans clé,
+  l'étape est sautée.

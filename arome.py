@@ -33,7 +33,9 @@ IR_R0, IR_C0 = 50, 60      # décalage dans la grille 35° N / 15° O
 LAT_N, LON_W, STEP, NJ, NI = 55.4, -12.0, 0.01, 1791, 2801
 WANT = {(6, 3): 1, (6, 4): 2, (6, 5): 3}                # (catégorie, numéro) GRIB2 → variable : basse, moyenne, haute
 SP1 = {(0, 0): "t", (1, 1): "rh", (2, 2): "u", (2, 3): "v", (2, 23): "gu", (2, 24): "gv"}
-VARS = ["CLCT", "CLCL", "CLCM", "CLCH", "T2M", "TD2M", "WIND", "GUST", "TQV", "TSURF", "BLH"]
+VARS = ["CLCT", "CLCL", "CLCM", "CLCH", "T2M", "TD2M", "WIND", "GUST", "TQV", "TSURF", "BLH", "PRECIP"]
+# PRECIP : précipitations de l'heure écoulée (pluie + neige + grésil, mm), × 10 (0…25 mm), d'après les cumuls du paquet SP2
+ACCUM = {(1, 65), (1, 66), (1, 75)}
 # TSURF : température du sol (°C, codage celsius) ; BLH : hauteur de la couche limite (m / 20) — paquet SP2 0,025°,
 # pour l'estimation expérimentale du seeing près du sol (inversion = T2M − TSURF)
 # Grille 0,025° (EURW1S40) pour la vapeur d'eau
@@ -135,10 +137,18 @@ def run_arome(put):
 
     def work(h):
         u = url(run, h)
-        msgs = {k: (o, n) for o, n, k in messages(u) if k in WANT}
+        allm = messages(u)
+        msgs = {k: (o, n) for o, n, k in allm if k in WANT}
         if len(msgs) < 3:
             return h, None
         out = {}
+        # Cumul des précipitations depuis le début du run (mm), pour la pluie heure par heure
+        acc = None
+        for o, n, k in allm:
+            if k in ACCUM:
+                v = blk(np.nan_to_num(field(get(u, (o, o + n - 1)), pct=False)[i0:i0 + nj_, j0:j0 + ni_], nan=0))
+                acc = v if acc is None else acc + v
+        out["ACC"] = acc
         for k, (o, n) in msgs.items():
             full = field(get(u, (o, o + n - 1)))
             if k == (6, 3):     # nuages bas sur tout le domaine, pour la couche « satellite prévu » (brouillard, stratus)
@@ -178,8 +188,11 @@ def run_arome(put):
             print("AROME SP1", h, ":", e)
         return h, out
 
+    accs = {}
     with cf.ThreadPoolExecutor(16) as ex:
         for h, out in ex.map(work, range(HOURS + 1)):
+            if out is not None and out.get("ACC") is not None:
+                accs[h] = out["ACC"]
             if out is None:
                 print("AROME : échéance", h, "incomplète")
                 continue
@@ -197,6 +210,12 @@ def run_arome(put):
             if "LOW" in out:
                 v = out["LOW"]
                 ir[h, 1, IR_R0:IR_R0 + IR_NJ, IR_C0:IR_C0 + IR_NI] = np.where(np.isnan(v), 255, np.clip(np.rint(v), 0, 100))
+    # Pluie de chaque heure = différence des cumuls
+    for h in range(1, HOURS + 1):
+        if h in accs and (h - 1) in accs:
+            cube[h, VARS.index("PRECIP")] = codage._u8(np.clip(accs[h] - accs[h - 1], 0, None) * 10)
+        elif h == 1 and 1 in accs and 0 not in accs:
+            cube[h, VARS.index("PRECIP")] = codage._u8(np.clip(accs[1], 0, None) * 10)
     # Vapeur d'eau de la colonne (0,025°, fichiers de 6 h) : plus proche point de la grille 0,025°
     la_c = BOX["bottom"] + RES * (np.arange(shape[0]) + 0.5)
     lo_c = BOX["left"] + RES * (np.arange(shape[1]) + 0.5)

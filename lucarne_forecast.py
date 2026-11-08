@@ -277,7 +277,8 @@ if __name__ == "__main__":
     jobs = (("nuages", main),
             ("seeing", lambda: __import__("seeing").run_seeing(upload)),
             ("arome", lambda: __import__("arome").run_arome(upload)),     # dépôt public : minutes d'Actions illimitées
-            ("ecmwf", lambda: __import__("ecmwf").run_ecmwf(upload)))
+            ("ecmwf", lambda: __import__("ecmwf").run_ecmwf(upload)),
+            ("vigilance", lambda: __import__("vigilance").run_vigilance(upload)))
     for name, job in jobs:
         try:
             job()
