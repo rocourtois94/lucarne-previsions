@@ -21,7 +21,7 @@ def show(tag, code, body, n=300):
     print(f"[{code}] {tag} ({len(body)} o) :", body[:n].decode("utf-8", "replace").replace("\n", " "))
 
 print("=== PE-AROME ===")
-cands = [f"MF-NWP-HIGHRES-PEARO-{g}-{d}-WCS" for g in ("001", "0025", "01") for d in ("FRANCE", "EUROPE", "FRANCE-SP1")]
+cands = [f"MF-NWP-HIGHRES-PEAROME-{g}-{d}-WCS" for g in ("0025", "001") for d in ("FRANCE",)]
 for wcs in cands:
     url = f"{BASE}/pearome/1.0/wcs/{wcs}/GetCapabilities?service=WCS&version=2.0.1&language=eng"
     code, body = get(url)
