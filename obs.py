@@ -99,7 +99,7 @@ def run_obs(put):
         for kk in [kk for kk, v in o.items() if v is None]:
             del o[kk]
     put({OUT: json.dumps(doc, separators=(",", ":"), ensure_ascii=False).encode()})
-    print("Observations :", len(out), "stations en", round(time.time() - t0), "s ; avec nébulosité :", sum(1 for s in out if s["n"] is not None))
+    print("Observations :", len(out), "stations en", round(time.time() - t0), "s ; avec nébulosité :", sum(1 for s in out if s.get("n") is not None))
 
 
 if __name__ == "__main__":
