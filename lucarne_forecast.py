@@ -285,6 +285,7 @@ if __name__ == "__main__":
             ("seeing", lambda: __import__("seeing").run_seeing(upload)),
             ("arome", lambda: __import__("arome").run_arome(upload)),     # dépôt public : minutes d'Actions illimitées
             ("ecmwf", lambda: __import__("ecmwf").run_ecmwf(upload)),
+            ("ens", lambda: __import__("ensemble_ec").run_ensemble_ec(upload)),
             ("vigilance", lambda: __import__("vigilance").run_vigilance(upload)))
     for name, job in jobs:
         try:
