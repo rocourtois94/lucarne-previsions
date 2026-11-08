@@ -3,12 +3,16 @@ N'écrit jamais la clé : seuls les codes de réponse et des extraits de contenu
 import json, math, os, re, urllib.request, urllib.error
 from collections import Counter
 
-KEY = os.environ.get("MF_VIGILANCE_KEY", "").strip()
+COMMON = os.environ.get("MF_VIGILANCE_KEY", "").strip()
+# Une clé par API possible (secrets MF_PEAROME_KEY, MF_OBS_KEY) ; sinon la clé commune
+KEYS = {"pearome": os.environ.get("MF_PEAROME_KEY", "").strip() or COMMON,
+        "DPObs": os.environ.get("MF_OBS_KEY", "").strip() or COMMON}
 BASE = "https://public-api.meteofrance.fr/public"
 SITE = (46.144, 6.081)   # Saint-Julien-en-Genevois
 
 def get(url):
-    req = urllib.request.Request(url, headers={"apikey": KEY, "accept": "*/*"})
+    api = "DPObs" if "/DPObs" in url else "pearome"
+    req = urllib.request.Request(url, headers={"apikey": KEYS[api], "accept": "*/*"})
     try:
         with urllib.request.urlopen(req, timeout=90) as r:
             return r.status, r.read()
@@ -20,6 +24,7 @@ def get(url):
 def show(tag, code, body, n=300):
     print(f"[{code}] {tag} ({len(body)} o) :", body[:n].decode("utf-8", "replace").replace("\n", " "))
 
+print("Clés dédiées présentes :", {k: bool(os.environ.get(v, "").strip()) for k, v in (("pearome", "MF_PEAROME_KEY"), ("obs", "MF_OBS_KEY"))})
 print("=== PE-AROME ===")
 cands = [f"MF-NWP-HIGHRES-PEAROME-{g}-{d}-WCS" for g in ("0025", "001") for d in ("FRANCE",)]
 for wcs in cands:
