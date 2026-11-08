@@ -64,8 +64,17 @@ def run_vigilance(put):
     if n == 0:
         print("Vigilance : structure inattendue, clés reçues :", list((doc.get("product", doc) or {}).keys())[:20])
         return
-    out = {"updated": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"), "source": "Météo-France",
+    prod = doc.get("product", doc) or {}
+    # Licence : la source et la date de la dernière mise à jour des données doivent être affichées
+    out = {"updated": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
+           "mf_update": prod.get("update_time") or doc.get("update_time"), "source": "Météo-France",
            "licence": "Licence Ouverte 2.0", "periods": periods}
     put({OUT: json.dumps(out, separators=(",", ":")).encode()})
     alerts = sorted({(d, v["max"]) for p in periods for d, v in p["depts"].items() if v["max"] >= 2})
     print("Vigilance :", len(periods), "périodes,", n, "départements ; jaune ou plus :", alerts[:12])
+
+
+if __name__ == "__main__":
+    # Passage seul (toutes les heures, workflow « vigilance.yml »)
+    import lucarne_forecast
+    run_vigilance(lucarne_forecast.upload)
