@@ -1,0 +1,17 @@
+# Repérage des API Météo-France (lancé à la main uniquement). La clé reste un secret, jamais affichée.
+name: Repérage API Météo-France
+on:
+  workflow_dispatch: {}
+jobs:
+  explore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Repérage
+        env:
+          MF_VIGILANCE_KEY: ${{ secrets.MF_VIGILANCE_KEY }}
+        run: python explore_mf.py
