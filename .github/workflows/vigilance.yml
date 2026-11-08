@@ -1,6 +1,6 @@
 # Vigilance Météo-France : toutes les heures (la carte change à 6 h et 16 h, et à chaque évolution d'un phénomène).
 # Une seule requête par passage (quota de l'API : 60 par minute). La clé reste un secret GitHub, jamais affichée.
-name: Vigilance Météo-France
+name: Vigilance et observations Météo-France
 on:
   schedule:
     - cron: "7 * * * *"
@@ -11,7 +11,7 @@ concurrency:
 jobs:
   vigilance:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
@@ -27,3 +27,13 @@ jobs:
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
           MF_VIGILANCE_KEY: ${{ secrets.MF_VIGILANCE_KEY }}
         run: python vigilance.py
+      - name: Observations des stations → R2
+        if: always()
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          MF_OBS_KEY: ${{ secrets.MF_OBS_KEY }}
+          MF_VIGILANCE_KEY: ${{ secrets.MF_VIGILANCE_KEY }}
+        run: python obs.py
