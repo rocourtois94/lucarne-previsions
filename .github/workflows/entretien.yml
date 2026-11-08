@@ -1,0 +1,22 @@
+# Entretien : GitHub désactive les tâches planifiées d'un dépôt public après 60 jours sans activité.
+# Une fois par mois, on écrit la date dans ENTRETIEN.txt (un petit commit) pour garder les calculs actifs.
+name: Entretien mensuel
+on:
+  schedule:
+    - cron: "17 3 1 * *"
+  workflow_dispatch: {}
+permissions:
+  contents: write
+jobs:
+  garder-actif:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - run: |
+          date -u +"Dernier entretien : %Y-%m-%d %H:%M UTC" > ENTRETIEN.txt
+          git config user.name "lucarne-entretien"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ENTRETIEN.txt
+          git commit -m "Entretien mensuel (garde les calculs planifiés actifs)" || echo "rien à changer"
+          git push
