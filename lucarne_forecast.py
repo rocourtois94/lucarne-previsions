@@ -218,6 +218,13 @@ def main():
     print(len(files), "fichiers,", round(total / 1e6, 1), "Mo")
     upload(files)
     print("Terminé en", round(time.time() - t0), "s")
+    # Probabilité de ciel dégagé (21 scénarios) : réutilise la grille et le membre de contrôle déjà calculés
+    try:
+        import ensemble
+        ensemble.run_ensemble(sys.modules[__name__], ref, idx, far, cube, lat0, lat1, lon0, lon1)
+    except Exception:
+        import traceback
+        print("Échec (ensemble) :"); traceback.print_exc()
 
 
 def r2_settings():
