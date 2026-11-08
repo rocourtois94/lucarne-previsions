@@ -25,6 +25,14 @@ cands = [f"MF-NWP-HIGHRES-PEARO-{g}-{d}-WCS" for g in ("001", "0025", "01") for 
 for wcs in cands:
     url = f"{BASE}/pearome/1.0/wcs/{wcs}/GetCapabilities?service=WCS&version=2.0.1&language=eng"
     code, body = get(url)
+    if code == 400:
+        show(wcs, code, body, 400)
+        for v in ("?service=WCS&version=2.0.1", "?service=WCS&version=2.0.1&language=fre"):
+            c2, b2 = get(f"{BASE}/pearome/1.0/wcs/{wcs}/GetCapabilities{v}")
+            show(wcs + v, c2, b2, 300)
+            if c2 == 200:
+                code, body = c2, b2
+                break
     if code != 200:
         print(f"[{code}] {wcs}")
         continue
@@ -40,6 +48,10 @@ for p in ("/pearome/1.0/", "/pearome/1.0/wms/MF-NWP-HIGHRES-PEARO-0025-FRANCE-WM
     show(p, *get(BASE + p), n=200)
 
 print("=== Données d'observation ===")
+for p in ("/DPObs/v1/station/horaire?id_station=74182001&format=json",
+          "/DPObs/v1/station/infrahoraire-6m?id_station=74182001&format=json",
+          "/DPObs/liste-stations", "/DPObs/v1/liste-stations?format=json"):
+    show(p, *get(BASE + p), n=300)
 code, body = get(f"{BASE}/DPObs/v1/liste-stations")
 show("liste-stations", code, body, 200)
 if code == 200:
