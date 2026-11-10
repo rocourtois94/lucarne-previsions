@@ -29,6 +29,12 @@ def get(path, key):
             if k == 2:
                 raise
             time.sleep(5)
+        except (urllib.error.URLError, TimeoutError, ConnectionError):
+            # Serveur Météo-France momentanément injoignable (ex. 10/11/2026 vers 00h20 UTC : « Connection refused ») :
+            # on réessaie un peu, puis on abandonne sans faire échouer tout le calcul (relancé chaque heure)
+            if k == 2:
+                return None
+            time.sleep(20)
 
 
 def parse(doc):
@@ -59,6 +65,9 @@ def run_vigilance(put):
         print("Vigilance : pas de clé MF_VIGILANCE_KEY, étape sautée")
         return
     doc = get("/cartevigilance/encours", key)
+    if doc is None:
+        print("Vigilance : Météo-France injoignable pour l'instant ; carte précédente conservée, nouvel essai à la prochaine heure")
+        return
     periods = parse(doc)
     n = sum(len(p["depts"]) for p in periods)
     if n == 0:
