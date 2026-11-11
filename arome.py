@@ -26,6 +26,7 @@ RES = 0.02
 TILE = 1
 PREFIX = "fc1/arome/"
 PREFIX_W = "fc1/aromew/"   # météo : T2M, TD2M, WIND, GUST, TQV
+PREFIX_WIND = "fc1/wind/"  # carte des vents : rafales (km/h), vent moyen U, V (km/h + 125), 0,05°, morceaux 5°
 PREFIX_IR = "fc1/ir/"      # « satellite prévu » : écart T(2 m) − température de brillance 10,8 µm, en 0,5 K, 0,05°, morceaux 5°
 IR_NJ, IR_NI = 358, 560    # grille 0,05° du domaine AROME (37,5–55,4° N, 12° O–16° E)
 IR_R0, IR_C0 = 50, 60      # décalage dans la grille 35° N / 15° O
@@ -134,6 +135,8 @@ def run_arome(put):
     blk = lambda v: v.reshape(shape[0], 2, shape[1], 2).mean(axis=(1, 3))     # 0,01° → 0,02°
     # Image infrarouge : tout le domaine AROME à 0,05°, placé dans une grille 35–60° N, 15° O–20° E (morceaux de 5°)
     ir = np.full((HOURS + 1, 2, 500, 700), 255, np.uint8)     # 0 : écart infrarouge (0,5 K) ; 1 : nuages bas (%)
+    wind = np.full((HOURS + 1, 3, 500, 700), 255, np.uint8)   # même grille : 0 rafales km/h ; 1 U, 2 V (km/h + 125)
+    red5 = lambda v: np.nanmean(v[:IR_NJ * 5, :IR_NI * 5].reshape(IR_NJ, 5, IR_NI, 5), axis=(1, 3))
 
     def work(h):
         u = url(run, h)
@@ -165,6 +168,8 @@ def run_arome(put):
                     if SP1[k] == "t":
                         tfull = full
                     w[SP1[k]] = blk(full[i0:i0 + nj_, j0:j0 + ni_])
+                    if SP1[k] in ("u", "v", "gu", "gv"):      # tout le domaine à 0,05° pour la carte des vents
+                        out["W_" + SP1[k]] = red5(full)
             # « Satellite prévu » : image infrarouge simulée (canal 10,8 µm, paquet SP3), comparée à la température
             # au sol : écart ≈ 0 par ciel clair, grand pour un nuage haut et épais (sommet froid)
             if tfull is not None:
@@ -207,6 +212,11 @@ def run_arome(put):
             if "IR" in out:
                 v = out["IR"]
                 ir[h, 0, IR_R0:IR_R0 + IR_NJ, IR_C0:IR_C0 + IR_NI] = np.where(np.isnan(v), 255, np.clip(np.rint(v * 2), 0, 250))
+            if all("W_" + c in out for c in ("u", "v", "gu", "gv")):
+                sl = (slice(IR_R0, IR_R0 + IR_NJ), slice(IR_C0, IR_C0 + IR_NI))
+                wind[h, 0][sl] = codage.wind_kmh(out["W_gu"], out["W_gv"])
+                wind[h, 1][sl] = codage._u8(out["W_u"] * 3.6 + 125)
+                wind[h, 2][sl] = codage._u8(out["W_v"] * 3.6 + 125)
             if "LOW" in out:
                 v = out["LOW"]
                 ir[h, 1, IR_R0:IR_R0 + IR_NJ, IR_C0:IR_C0 + IR_NI] = np.where(np.isnan(v), 255, np.clip(np.rint(v), 0, 100))
@@ -292,6 +302,11 @@ def run_arome(put):
             hdr = b"LCFC" + struct.pack("<HqIHHfffHH", 1, ref_unix, 3600, HOURS + 1, 2, float(la), float(lo), 0.05, 100, 100)
             c = zlib.compressobj(9, zlib.DEFLATED, -15)
             files[f"{PREFIX_IR}{la}_{lo}.bin"] = hdr + c.compress(np.ascontiguousarray(block).tobytes()) + c.flush()
+            wb = wind[:, :, a:a + 100, b:b + 100]
+            if not (wb == 255).all():
+                hdr = b"LCFC" + struct.pack("<HqIHHfffHH", 1, ref_unix, 3600, HOURS + 1, 3, float(la), float(lo), 0.05, 100, 100)
+                c = zlib.compressobj(9, zlib.DEFLATED, -15)
+                files[f"{PREFIX_WIND}{la}_{lo}.bin"] = hdr + c.compress(np.ascontiguousarray(wb).tobytes()) + c.flush()
     meta = {"model": "AROME 0,01°", "source": "Météo-France", "licence": "Licence Ouverte 2.0",
             "reference": run.isoformat(), "generated": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
             "variables": VARS, "note": "CLCT calculée ; codage : codage.py", "hours": HOURS + 1, "res": RES,

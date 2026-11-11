@@ -62,3 +62,8 @@ image infrarouge de nuit).
 - `fc1/vigilance.json` (`vigilance.py`) : carte de vigilance Météo-France en cours, par département. Nécessite le secret
   GitHub `MF_VIGILANCE_KEY` (clé de l'API « Données publiques Vigilance », portail-api.meteofrance.fr) ; sans clé,
   l'étape est sautée.
+
+## Carte des vents (depuis le 11/11/2026)
+- `fc1/wind/<lat>_<lon>.bin` (`arome.py`) : morceaux 5° × 5° (même grille que `fc1/ir/`, 0,05°, 52 h), format « LCFC »,
+  3 variables : rafales (km/h), vent moyen à 10 m U et V (km/h + 125 ; vers l'est, vers le nord). Source : Météo-France.
+- `fc1/seeing/` : 5e et 6e variables = vent du courant-jet U et V (m/s + 125), au niveau (300, 250 ou 200 hPa) où il est le plus fort.

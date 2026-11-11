@@ -125,8 +125,12 @@ def seeing_field(f):
     w10 = np.hypot(f.get(("10u", 10), 0 * zs), f.get(("10v", 10), 0 * zs))
     bl = 0.9 + 0.08 * np.clip(w10, 0, 15)
     total = (free ** (5 / 3) + bl ** (5 / 3)) ** (3 / 5)
-    jet = np.maximum.reduce([np.hypot(f[("u", l)], f[("v", l)]) for l in (300, 250, 200) if ("u", l) in f])
-    return total, jet, free
+    jl = [l for l in (300, 250, 200) if ("u", l) in f]
+    sp = np.stack([np.hypot(f[("u", l)], f[("v", l)]) for l in jl])
+    jet = sp.max(axis=0)
+    k = sp.argmax(axis=0)                                 # niveau du vent le plus fort : sa direction (carte des vents)
+    ju = np.choose(k, [f[("u", l)] for l in jl]); jv = np.choose(k, [f[("v", l)] for l in jl])
+    return total, (jet, ju, jv), free
 
 
 def run_seeing(put):
@@ -138,8 +142,8 @@ def run_seeing(put):
     def work(step):
         data = fetch(filter_url(run, step))
         f, shape = decode(data)
-        s, j, fr = seeing_field(f)
-        return step, s, j, f.get(("tcc", "atm")), shape, fr
+        s, (j, ju, jv), fr = seeing_field(f)
+        return step, s, (j, ju, jv), f.get(("tcc", "atm")), shape, fr
 
     with cf.ThreadPoolExecutor(4) as ex:                  # NOMADS limite le nombre de requêtes
         for step, s, j, c, shape, fr in ex.map(work, STEPS):
@@ -151,11 +155,14 @@ def run_seeing(put):
     order = np.argsort(lats)
     lats = lats[order]
     lons = ((lon1 + 0.25 * np.arange(ni)) + 180) % 360 - 180
-    cube = np.zeros((len(STEPS), 4, nj, ni), np.uint8)
+    cube = np.zeros((len(STEPS), 6, nj, ni), np.uint8)
     for si, st in enumerate(STEPS):
         s, j, c, fr = results[st]
         cube[si, 0] = np.clip(np.rint(s[order] / 0.05), 0, 254)
+        j, ju, jv = j
         cube[si, 1] = np.clip(np.rint(j[order]), 0, 254)
+        cube[si, 4] = np.clip(np.rint(ju[order] + 125), 0, 250)     # vent du courant-jet U, V (m/s + 125)
+        cube[si, 5] = np.clip(np.rint(jv[order] + 125), 0, 250)
         cube[si, 2] = 255 if c is None else np.clip(np.rint(c[order]), 0, 100)     # nuages %, 255 = inconnu
         cube[si, 3] = np.clip(np.rint(fr[order] / 0.05), 0, 254)    # seeing de l'atmosphère libre (sans la couche limite)
     print("Seeing calculé en", round(time.time() - t0), "s ; Saint-Julien +12 h :",
@@ -169,13 +176,13 @@ def run_seeing(put):
             block = cube[:, :, i0:i0 + n, j0:j0 + n]
             if block.shape[2] < 2 or block.shape[3] < 2:
                 continue
-            hdr = b"LCSE" + struct.pack("<HqIHHfffHH", 1, ref_unix, 3 * 3600, len(STEPS), 4,
+            hdr = b"LCSE" + struct.pack("<HqIHHfffHH", 1, ref_unix, 3 * 3600, len(STEPS), 6,
                                        float(lats[i0]), float(lons[j0]), 0.25, block.shape[2], block.shape[3])
             c = zlib.compressobj(9, zlib.DEFLATED, -15)
             files[f"{PREFIX}{la}_{lo}.bin"] = hdr + c.compress(np.ascontiguousarray(block).tobytes()) + c.flush()
     meta = {"model": "GFS 0,25°", "source": "NOAA/NCEP (domaine public)", "method": "Dewan 1993 + couche limite moyenne",
             "reference": run.isoformat(), "generated": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
-            "steps_h": 3, "variables": ["seeing_0.05arcsec", "jet_m_s", "TCDC_percent", "free_seeing_0.05arcsec"], "tiles": len(files)}
+            "steps_h": 3, "variables": ["seeing_0.05arcsec", "jet_m_s", "TCDC_percent", "free_seeing_0.05arcsec", "jet_u_m_s+125", "jet_v_m_s+125"], "tiles": len(files)}
     import json
     files[PREFIX + "latest.json"] = json.dumps(meta).encode()
     put(files)
