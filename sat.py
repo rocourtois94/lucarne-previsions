@@ -59,14 +59,15 @@ def to_overlay(png, mask_png=None):
     if mask_png:
         m = np.asarray(Image.open(io.BytesIO(mask_png)).convert("RGB").resize(im.size, Image.BILINEAR), dtype=np.float32)
         cloud = ((m.min(axis=2) - 200) / 45).clip(0, 1)           # blanc dans le masque = nuage
-        alpha = np.maximum(alpha, cloud * 0.78)
+        alpha = np.maximum(alpha, cloud * 0.8)
     alpha = (alpha * 240)
     alpha[~valid] = 0
     out = np.zeros(lum.shape + (4,), np.uint8)
     # Couleur : gris bleuté pour les nuages bas, blanc pour les sommets froids
-    out[..., 0] = (200 + 55 * cold).astype(np.uint8)
-    out[..., 1] = (206 + 49 * cold).astype(np.uint8)
-    out[..., 2] = (218 + 37 * cold).astype(np.uint8)
+    # mêmes teintes que la prévision dans l'app (BestSky drawIR) : bas (150,170,195) → haut blanc
+    out[..., 0] = (150 + 105 * cold).astype(np.uint8)
+    out[..., 1] = (170 + 85 * cold).astype(np.uint8)
+    out[..., 2] = (195 + 60 * cold).astype(np.uint8)
     out[..., 3] = alpha.astype(np.uint8)
     b = io.BytesIO(); Image.fromarray(out, "RGBA").save(b, "PNG", optimize=True)
     return b.getvalue(), float(np.mean(lum[valid])) if valid.any() else 0
