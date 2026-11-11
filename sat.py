@@ -15,10 +15,12 @@ from PIL import Image
 
 WMS = "https://view.eumetsat.int/geoserver/wms"
 LAYER = "mtg_fd:ir105_hrfi"
+MASK = "msg_fes:clm"          # masque nuageux (produit dérivé « Core ») : voit aussi stratus et nuages bas
 PREFIX = "fc1/sat/"
 LON0, LON1, LAT0, LAT1 = -14.0, 30.0, 34.0, 60.0
 WIDTH = 2000
 HOURS = 12
+RENDER = 2                    # version du rendu (changer pour tout recalculer)
 UA = {"User-Agent": "Lucarne-previsions (info@photily.fr)"}
 
 def merc(lon, lat):
@@ -29,8 +31,8 @@ X0, Y0 = merc(LON0, LAT0)
 X1, Y1 = merc(LON1, LAT1)
 HEIGHT = int(round(WIDTH * (Y1 - Y0) / (X1 - X0)))
 
-def fetch(t):
-    u = (f"{WMS}?service=WMS&version=1.3.0&request=GetMap&layers={LAYER}&styles=&crs=EPSG:3857"
+def fetch(t, layer=LAYER):
+    u = (f"{WMS}?service=WMS&version=1.3.0&request=GetMap&layers={layer}&styles=&crs=EPSG:3857"
          f"&bbox={X0:.1f},{Y0:.1f},{X1:.1f},{Y1:.1f}&width={WIDTH}&height={HEIGHT}&format=image/png"
          f"&time={t:%Y-%m-%dT%H:%M:%S}.000Z")
     for k in range(3):
@@ -44,15 +46,26 @@ def fetch(t):
             print("Satellite :", t, "essai", k + 1, ":", str(e)[:100]); time.sleep(10)
     return None
 
-def to_overlay(png):
-    """Niveaux de gris (blanc = froid) → blanc avec transparence : sommets froids opaques, sol transparent."""
+def to_overlay(png, mask_png=None):
+    """Infrarouge (blanc = froid) + masque nuageux → nuages blancs (sommets froids) ou gris clair (nuages bas,
+    stratus), sol et ciel clair transparents. Sans le masque, un stratus de novembre (à peine plus froid que le
+    sol) restait presque invisible alors que le ciel était bouché."""
     im = Image.open(io.BytesIO(png)).convert("LA")
     a = np.asarray(im, dtype=np.float32)
     lum, valid = a[..., 0], a[..., 1] > 0
-    alpha = np.clip((lum - 95) / 125, 0, 1) ** 0.9 * 235
+    cold = np.clip((lum - 120) / 100, 0, 1)                      # 0 : sommet tiède (bas) ; 1 : sommet froid (haut)
+    alpha = np.clip((lum - 95) / 125, 0, 1) ** 0.9
+    if mask_png:
+        m = np.asarray(Image.open(io.BytesIO(mask_png)).convert("RGB").resize(im.size, Image.BILINEAR), dtype=np.float32)
+        cloud = ((m.min(axis=2) - 200) / 45).clip(0, 1)           # blanc dans le masque = nuage
+        alpha = np.maximum(alpha, cloud * 0.78)
+    alpha = (alpha * 240)
     alpha[~valid] = 0
     out = np.zeros(lum.shape + (4,), np.uint8)
-    out[..., :3] = 255
+    # Couleur : gris bleuté pour les nuages bas, blanc pour les sommets froids
+    out[..., 0] = (200 + 55 * cold).astype(np.uint8)
+    out[..., 1] = (206 + 49 * cold).astype(np.uint8)
+    out[..., 2] = (218 + 37 * cold).astype(np.uint8)
     out[..., 3] = alpha.astype(np.uint8)
     b = io.BytesIO(); Image.fromarray(out, "RGBA").save(b, "PNG", optimize=True)
     return b.getvalue(), float(np.mean(lum[valid])) if valid.any() else 0
@@ -64,7 +77,7 @@ def run_sat(put_files=None):
         idx = json.loads(s3.get_object(Bucket=bucket, Key=PREFIX + "index.json")["Body"].read())
     except Exception:
         idx = {"hours": []}
-    have = set(idx.get("hours", []))
+    have = set(idx.get("hours", [])) if idx.get("render") == RENDER else set()
     now = dt.datetime.now(dt.timezone.utc).replace(minute=0, second=0, microsecond=0)
     files = {}
     for k in range(HOURS + 1):
@@ -75,7 +88,7 @@ def run_sat(put_files=None):
         png = fetch(t)
         if not png:
             continue
-        ov, mean = to_overlay(png)
+        ov, mean = to_overlay(png, fetch(t, MASK))
         files[f"{PREFIX}{key}.png"] = ov
         have.add(key)
         print("Satellite :", t.isoformat(), "luminance moyenne", round(mean), "→", len(ov) // 1024, "ko")
@@ -89,7 +102,7 @@ def run_sat(put_files=None):
     meta = {"source": "EUMETSAT Meteosat MTG-I FCI IR 10,5 µm (EUMETView)", "licence": "CC BY 4.0",
             "credit": f"Contient des données EUMETSAT Meteosat modifiées {now.year}",
             "updated": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
-            "crs": "EPSG:3857", "bbox": [X0, Y0, X1, Y1], "size": [WIDTH, HEIGHT], "hours": keep}
+            "crs": "EPSG:3857", "render": RENDER, "bbox": [X0, Y0, X1, Y1], "size": [WIDTH, HEIGHT], "hours": keep}
     files[PREFIX + "index.json"] = json.dumps(meta).encode()
     # « latest.json » attendu en dernier par upload() : l'index joue ce rôle
     files[PREFIX + "latest.json"] = files.pop(PREFIX + "index.json")
