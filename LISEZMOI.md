@@ -67,3 +67,4 @@ image infrarouge de nuit).
 - `fc1/wind/<lat>_<lon>.bin` (`arome.py`) : morceaux 5° × 5° (même grille que `fc1/ir/`, 0,05°, 52 h), format « LCFC »,
   3 variables : rafales (km/h), vent moyen à 10 m U et V (km/h + 125 ; vers l'est, vers le nord). Source : Météo-France.
 - `fc1/seeing/` : 5e et 6e variables = vent du courant-jet U et V (m/s + 125), au niveau (300, 250 ou 200 hPa) où il est le plus fort.
+- `fc1/ir/` : depuis le 11/11/2026, 4 variables : écart infrarouge, puis nuages bas, moyens et hauts AROME (%).
