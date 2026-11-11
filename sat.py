@@ -31,13 +31,14 @@ X0, Y0 = merc(LON0, LAT0)
 X1, Y1 = merc(LON1, LAT1)
 HEIGHT = int(round(WIDTH * (Y1 - Y0) / (X1 - X0)))
 
-def fetch(t, layer=LAYER):
+def fetch(t, layer=LAYER, width=WIDTH, tries=3, timeout=90):
+    h = int(round(width * HEIGHT / WIDTH))
     u = (f"{WMS}?service=WMS&version=1.3.0&request=GetMap&layers={layer}&styles=&crs=EPSG:3857"
-         f"&bbox={X0:.1f},{Y0:.1f},{X1:.1f},{Y1:.1f}&width={WIDTH}&height={HEIGHT}&format=image/png"
+         f"&bbox={X0:.1f},{Y0:.1f},{X1:.1f},{Y1:.1f}&width={width}&height={h}&format=image/png"
          f"&time={t:%Y-%m-%dT%H:%M:%S}.000Z")
-    for k in range(3):
+    for k in range(tries):
         try:
-            with urllib.request.urlopen(urllib.request.Request(u, headers=UA), timeout=90) as r:
+            with urllib.request.urlopen(urllib.request.Request(u, headers=UA), timeout=timeout) as r:
                 d = r.read()
                 if r.headers.get("Content-Type", "").startswith("image/"):
                     return d
@@ -80,6 +81,7 @@ def run_sat(put_files=None):
     have = set(idx.get("hours", [])) if idx.get("render") == RENDER else set()
     now = dt.datetime.now(dt.timezone.utc).replace(minute=0, second=0, microsecond=0)
     files = {}
+    start = time.time()
     for k in range(HOURS + 1):
         t = now - dt.timedelta(hours=k)
         key = t.strftime("%Y%m%d%H")
@@ -88,7 +90,12 @@ def run_sat(put_files=None):
         png = fetch(t)
         if not png:
             continue
-        ov, mean = to_overlay(png, fetch(t, MASK))
+        if time.time() - start > 14 * 60:
+            print("Satellite : temps limite atteint, la suite au prochain passage"); break
+        mask = fetch(t, MASK, width=700, tries=2, timeout=40) if time.time() - start < 10 * 60 else None
+        if not mask:        # sans masque, le stratus serait invisible : on retentera au prochain passage
+            print("Satellite :", t, "masque nuageux indisponible, heure refaite au prochain passage"); continue
+        ov, mean = to_overlay(png, mask)
         files[f"{PREFIX}{key}.png"] = ov
         have.add(key)
         print("Satellite :", t.isoformat(), "luminance moyenne", round(mean), "→", len(ov) // 1024, "ko")
