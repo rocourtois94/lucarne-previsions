@@ -1,27 +1,16 @@
-"""Repérage EUMETView (WMS EUMETSAT) : couches infrarouges Meteosat, dimension temps, une image d'essai."""
-import urllib.request, re, time
-B = "https://view.eumetsat.int/geoserver/wms"
-def get(u, n=None):
-    req = urllib.request.Request(u, headers={"User-Agent": "Lucarne-previsions (contact info@photily.fr)"})
-    with urllib.request.urlopen(req, timeout=60) as r:
-        return r.status, r.headers.get("Content-Type"), r.read() if n is None else r.read(n)
-s, ct, cap = get(B + "?service=WMS&version=1.3.0&request=GetCapabilities")
-cap = cap.decode("utf-8", "ignore")
-print("capabilities", s, ct, len(cap))
-names = re.findall(r"<Layer[^>]*queryable[^>]*>\s*<Name>([^<]+)</Name>\s*<Title>([^<]+)</Title>", cap)
-for n, t in names:
-    if re.search(r"ir|IR|10\.8|10\.5|cloud|Cloud", n + t): print("  ", n, "|", t)
-for lay in ["msg_fes:ir108", "mtg_fd:ir105_hrfi", "msg_fes:rgb_naturalenhncd"]:
-    i = cap.find("<Name>" + lay + "</Name>")
-    if i >= 0:
-        seg = cap[i:i + 3000]
-        m = re.search(r'<Dimension name="time"[^>]*>([^<]{0,300})', seg)
-        print(lay, "time:", m.group(1)[:200] if m else None, "...", (m.group(1)[-80:] if m else ""))
-for lay in ["msg_fes:ir108", "mtg_fd:ir105_hrfi"]:
-    u = (B + "?service=WMS&version=1.3.0&request=GetMap&layers=" + lay + "&styles=&crs=EPSG:4326&bbox=40,-6,52,18"
-         "&width=600&height=300&format=image/png")
+"""Diagnostic : au-dessus de Genève, valeur IR, masque nuageux, type de nuage, hauteur du sommet (EUMETView)."""
+import urllib.request, io, math, datetime as dt
+from PIL import Image
+B="https://view.eumetsat.int/geoserver/wms"; UA={"User-Agent":"Lucarne-previsions (info@photily.fr)"}
+t=(dt.datetime.utcnow().replace(minute=0,second=0,microsecond=0)-dt.timedelta(hours=1)).strftime("%Y-%m-%dT%H:00:00.000Z")
+pts={"Genève":(46.20,6.15),"St-Julien":(46.14,6.08),"Lyon":(45.76,4.84),"Paris":(48.86,2.35),"Marseille":(43.3,5.37)}
+def get(layer,style=""):
+    u=f"{B}?service=WMS&version=1.3.0&request=GetMap&layers={layer}&styles={style}&crs=EPSG:4326&bbox=42,0,50,12&width=600&height=400&format=image/png&time={t}"
+    with urllib.request.urlopen(urllib.request.Request(u,headers=UA),timeout=90) as r: return Image.open(io.BytesIO(r.read())).convert("RGBA")
+print("heure",t)
+for lay in ["mtg_fd:ir105_hrfi","msg_fes:clm","msg_fes:cth","mtg_fd:rgb_fog","mtg_fd:rgb_cloudtype","msg_fes:vis006"]:
     try:
-        t = time.time(); s, ct, d = get(u); print("GetMap", lay, s, ct, len(d), round(time.time() - t, 1), "s")
-    except Exception as e:
-        print("GetMap", lay, "échec", e)
-    time.sleep(2)
+        im=get(lay)
+        vals={n:im.getpixel((int((lo-0)/12*600),int((50-la)/8*400))) for n,(la,lo) in pts.items()}
+        print(lay, vals)
+    except Exception as e: print(lay,"échec",str(e)[:80])
