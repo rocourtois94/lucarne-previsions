@@ -2,8 +2,8 @@
 # (00, 06, 12, 18 UTC, complet ≈ 4 h après) est publié. Les autres modèles restent dans « Prévisions Lucarne ».
 name: MeteoSwiss toutes les heures
 on:
-  schedule:
-    - cron: "40 * * * *"
+  # Lancé chaque heure par le Worker Cloudflare « lucarne-horloge » (voir horloge/worker.js) :
+  # le planificateur de GitHub sautait la plupart des passages.
   workflow_dispatch:             # bouton « Run workflow » pour lancer à la main
     inputs:
       force:

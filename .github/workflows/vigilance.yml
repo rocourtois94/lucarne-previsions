@@ -2,13 +2,12 @@
 # Une seule requête par passage (quota de l'API : 60 par minute). La clé reste un secret GitHub, jamais affichée.
 name: Météo-France toutes les heures (vigilance, observations, AROME-PI, satellite)
 on:
-  schedule:
-    - cron: "47 * * * *"
-    - cron: "17 * * * *"     # deuxième créneau : GitHub saute souvent des passages programmés     # à h+47 : run AROME-PI de l'heure publié, observations de l'heure arrivées
+  # Lancé chaque heure par le Worker Cloudflare « lucarne-horloge » (voir horloge/worker.js) :
+  # le planificateur de GitHub sautait la plupart des passages.
   workflow_dispatch: {}
 concurrency:
   group: vigilance
-  cancel-in-progress: false     # deux créneaux par heure : on attend au lieu de couper un passage en cours
+  cancel-in-progress: false     # si un lancement manuel croise le passage horaire, on attend au lieu de couper
 jobs:
   vigilance:
     runs-on: ubuntu-latest

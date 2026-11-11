@@ -68,3 +68,10 @@ image infrarouge de nuit).
   3 variables : rafales (km/h), vent moyen à 10 m U et V (km/h + 125 ; vers l'est, vers le nord). Source : Météo-France.
 - `fc1/seeing/` : 5e et 6e variables = vent du courant-jet U et V (m/s + 125), au niveau (300, 250 ou 200 hPa) où il est le plus fort.
 - `fc1/ir/` : depuis le 11/11/2026, 4 variables : écart infrarouge, puis nuages bas, moyens et hauts AROME (%).
+
+## Horaires des calculs
+
+Le planificateur de GitHub sautait la plupart des passages programmés. Les calculs sont donc lancés par le Worker
+Cloudflare « lucarne-horloge » (code dans `horloge/worker.js`, secret `GITHUB_TOKEN`) :
+vigilance.yml à h+47, meteoswiss.yml à h+40, previsions.yml à 4:20, 10:20, 16:20 et 22:20 UTC.
+Seul entretien.yml (mensuel) garde un horaire GitHub. Chaque calcul reste lançable à la main (« Run workflow »).
