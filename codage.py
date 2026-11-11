@@ -9,6 +9,7 @@ TQI, glace nuageuse (g/m²) : g/m² / 2, 0…500 g/m²
 TSURF (°C)                 : comme T2M
 BLH, couche limite (m)     : m / 20, 0…5000 m
 PRECIP, pluie de l'heure   : mm × 10, 0…25 mm (fc1/aromew/, 12e variable)
+U10, V10 (fc1/aromew/)     : vent moyen vers l'est / vers le nord, km/h + 125 (13e et 14e variables)
 Seeing (fc1/seeing/)       : 0,05″ ; variable 3 = atmosphère libre seule (sans la couche limite)
 """
 import numpy as np

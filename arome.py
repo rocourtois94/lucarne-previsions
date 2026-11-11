@@ -34,7 +34,7 @@ IR_R0, IR_C0 = 50, 60      # décalage dans la grille 35° N / 15° O
 LAT_N, LON_W, STEP, NJ, NI = 55.4, -12.0, 0.01, 1791, 2801
 WANT = {(6, 3): 1, (6, 4): 2, (6, 5): 3}                # (catégorie, numéro) GRIB2 → variable : basse, moyenne, haute
 SP1 = {(0, 0): "t", (1, 1): "rh", (2, 2): "u", (2, 3): "v", (2, 23): "gu", (2, 24): "gv"}
-VARS = ["CLCT", "CLCL", "CLCM", "CLCH", "T2M", "TD2M", "WIND", "GUST", "TQV", "TSURF", "BLH", "PRECIP"]
+VARS = ["CLCT", "CLCL", "CLCM", "CLCH", "T2M", "TD2M", "WIND", "GUST", "TQV", "TSURF", "BLH", "PRECIP", "U10", "V10"]
 # PRECIP : précipitations de l'heure écoulée (pluie + neige + grésil, mm), × 10 (0…25 mm), d'après les cumuls du paquet SP2
 ACCUM = {(1, 65), (1, 66), (1, 75)}
 # TSURF : température du sol (°C, codage celsius) ; BLH : hauteur de la couche limite (m / 20) — paquet SP2 0,025°,
@@ -189,6 +189,9 @@ def run_arome(put):
                 out["WIND"] = codage.wind_kmh(w["u"], w["v"])
             if "gu" in w and "gv" in w:
                 out["GUST"] = codage.wind_kmh(w["gu"], w["gv"])
+            if "u" in w and "v" in w:          # direction du vent à 0,02° (carte des vents en zoomant)
+                out["U10"] = codage._u8(w["u"] * 3.6 + 125)
+                out["V10"] = codage._u8(w["v"] * 3.6 + 125)
         except Exception as e:
             print("AROME SP1", h, ":", e)
         return h, out
@@ -206,7 +209,7 @@ def run_arome(put):
             for vi, v in enumerate((tot, lo, mi, hi)):
                 g = np.where(np.isnan(v), 255, np.clip(np.rint(v * 100), 0, 100)).astype(np.uint8)
                 cube[h, vi] = g
-            for name in ("T2M", "TD2M", "WIND", "GUST"):
+            for name in ("T2M", "TD2M", "WIND", "GUST", "U10", "V10"):
                 if name in out:
                     cube[h, VARS.index(name)] = out[name]
             if "IR" in out:
