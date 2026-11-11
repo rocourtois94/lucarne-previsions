@@ -20,7 +20,7 @@ PREFIX = "fc1/sat/"
 LON0, LON1, LAT0, LAT1 = -14.0, 30.0, 34.0, 60.0
 WIDTH = 2000
 HOURS = 12
-RENDER = 2                    # version du rendu (changer pour tout recalculer)
+RENDER = 3                    # version du rendu (changer pour tout recalculer)
 UA = {"User-Agent": "Lucarne-previsions (info@photily.fr)"}
 
 def merc(lon, lat):
@@ -59,7 +59,7 @@ def to_overlay(png, mask_png=None):
     if mask_png:
         m = np.asarray(Image.open(io.BytesIO(mask_png)).convert("RGB").resize(im.size, Image.BILINEAR), dtype=np.float32)
         cloud = ((m.min(axis=2) - 200) / 45).clip(0, 1)           # blanc dans le masque = nuage
-        alpha = np.maximum(alpha, cloud * 0.8)
+        alpha = np.maximum(alpha, cloud)          # nuage détecté = couvert, aussi opaque que la prévision
     alpha = (alpha * 240)
     alpha[~valid] = 0
     out = np.zeros(lum.shape + (4,), np.uint8)
