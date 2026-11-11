@@ -2,3 +2,4 @@ numpy
 scipy
 eccodes
 boto3
+pillow
