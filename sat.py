@@ -20,7 +20,7 @@ PREFIX = "fc1/sat/"
 LON0, LON1, LAT0, LAT1 = -14.0, 30.0, 34.0, 60.0
 WIDTH = 2000
 HOURS = 12
-RENDER = 3                    # version du rendu (changer pour tout recalculer)
+RENDER = 4                    # version du rendu (changer pour tout recalculer)
 UA = {"User-Agent": "Lucarne-previsions (info@photily.fr)"}
 
 def merc(lon, lat):
@@ -48,27 +48,29 @@ def fetch(t, layer=LAYER, width=WIDTH, tries=3, timeout=90):
     return None
 
 def to_overlay(png, mask_png=None):
-    """Infrarouge (blanc = froid) + masque nuageux → nuages blancs (sommets froids) ou gris clair (nuages bas,
-    stratus), sol et ciel clair transparents. Sans le masque, un stratus de novembre (à peine plus froid que le
-    sol) restait presque invisible alors que le ciel était bouché."""
+    """Toutes les couches, avec la même logique que la prévision de l'app (BestSky drawIR) :
+    - k : nuages d'altitude, d'après l'infrarouge (sommet froid → blanc, d'autant plus opaque qu'il est froid ;
+      un voile de cirrus reste translucide, un cumulonimbus est opaque) ;
+    - l : couche basse (stratus, brouillard), d'après le masque nuageux EUMETSAT, en gris bleuté à 75 % ;
+    - opacité totale = k + l·(1 − k), couleur mélangée selon la part « haut ».
+    Sans le masque, un stratus de novembre (presque à la température du sol) restait invisible."""
     im = Image.open(io.BytesIO(png)).convert("LA")
     a = np.asarray(im, dtype=np.float32)
     lum, valid = a[..., 0], a[..., 1] > 0
-    cold = np.clip((lum - 120) / 100, 0, 1)                      # 0 : sommet tiède (bas) ; 1 : sommet froid (haut)
-    alpha = np.clip((lum - 95) / 125, 0, 1) ** 0.9
+    k = np.clip((lum - 110) / 110, 0, 1) ** 1.1                   # nuages d'altitude
     if mask_png:
         m = np.asarray(Image.open(io.BytesIO(mask_png)).convert("RGB").resize(im.size, Image.BILINEAR), dtype=np.float32)
-        cloud = ((m.min(axis=2) - 200) / 45).clip(0, 1)           # blanc dans le masque = nuage
-        alpha = np.maximum(alpha, cloud)          # nuage détecté = couvert, aussi opaque que la prévision
-    alpha = (alpha * 240)
+        l = ((m.min(axis=2) - 200) / 45).clip(0, 1) * 0.75        # blanc dans le masque = nuage
+    else:
+        l = np.zeros_like(k)
+    alpha = k + l * (1 - k)
+    w = k / np.maximum(alpha, 1e-3)                               # part « haut » dans la couleur
     alpha[~valid] = 0
     out = np.zeros(lum.shape + (4,), np.uint8)
-    # Couleur : gris bleuté pour les nuages bas, blanc pour les sommets froids
-    # mêmes teintes que la prévision dans l'app (BestSky drawIR) : bas (150,170,195) → haut blanc
-    out[..., 0] = (150 + 105 * cold).astype(np.uint8)
-    out[..., 1] = (170 + 85 * cold).astype(np.uint8)
-    out[..., 2] = (195 + 60 * cold).astype(np.uint8)
-    out[..., 3] = alpha.astype(np.uint8)
+    out[..., 0] = (150 + 105 * w).astype(np.uint8)                # bas (150,170,195) → haut blanc
+    out[..., 1] = (170 + 85 * w).astype(np.uint8)
+    out[..., 2] = (195 + 60 * w).astype(np.uint8)
+    out[..., 3] = (alpha * 255).astype(np.uint8)
     b = io.BytesIO(); Image.fromarray(out, "RGBA").save(b, "PNG", optimize=True)
     return b.getvalue(), float(np.mean(lum[valid])) if valid.any() else 0
 
