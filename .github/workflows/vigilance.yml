@@ -3,11 +3,12 @@
 name: Météo-France toutes les heures (vigilance, observations, AROME-PI, satellite)
 on:
   schedule:
-    - cron: "47 * * * *"     # à h+47 : run AROME-PI de l'heure publié, observations de l'heure arrivées
+    - cron: "47 * * * *"
+    - cron: "17 * * * *"     # deuxième créneau : GitHub saute souvent des passages programmés     # à h+47 : run AROME-PI de l'heure publié, observations de l'heure arrivées
   workflow_dispatch: {}
 concurrency:
   group: vigilance
-  cancel-in-progress: true
+  cancel-in-progress: false     # deux créneaux par heure : on attend au lieu de couper un passage en cours
 jobs:
   vigilance:
     runs-on: ubuntu-latest

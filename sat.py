@@ -15,6 +15,8 @@ from PIL import Image
 
 WMS = "https://view.eumetsat.int/geoserver/wms"
 LAYER = "mtg_fd:ir105_hrfi"
+GEO = "mtg_fd:rgb_geocolour"  # « image satellite » comme MeteoSwiss : couleurs vraies le jour, nuages bas bleutés
+                              # et lumières des villes la nuit (composition RGB des images Core, même licence)
 MASK = "msg_fes:clm"          # masque nuageux (produit dérivé « Core ») : voit aussi stratus et nuages bas
 PREFIX = "fc1/sat/"
 LON0, LON1, LAT0, LAT1 = -14.0, 30.0, 34.0, 60.0
@@ -31,10 +33,10 @@ X0, Y0 = merc(LON0, LAT0)
 X1, Y1 = merc(LON1, LAT1)
 HEIGHT = int(round(WIDTH * (Y1 - Y0) / (X1 - X0)))
 
-def fetch(t, layer=LAYER, width=WIDTH, tries=3, timeout=90):
+def fetch(t, layer=LAYER, width=WIDTH, tries=3, timeout=90, fmt="image/png"):
     h = int(round(width * HEIGHT / WIDTH))
     u = (f"{WMS}?service=WMS&version=1.3.0&request=GetMap&layers={layer}&styles=&crs=EPSG:3857"
-         f"&bbox={X0:.1f},{Y0:.1f},{X1:.1f},{Y1:.1f}&width={width}&height={h}&format=image/png"
+         f"&bbox={X0:.1f},{Y0:.1f},{X1:.1f},{Y1:.1f}&width={width}&height={h}&format={fmt}"
          f"&time={t:%Y-%m-%dT%H:%M:%S}.000Z")
     for k in range(tries):
         try:
@@ -82,6 +84,7 @@ def run_sat(put_files=None):
     except Exception:
         idx = {"hours": []}
     have = set(idx.get("hours", [])) if idx.get("render") == RENDER else set()
+    have_geo = set(idx.get("geo", []))
     now = dt.datetime.now(dt.timezone.utc).replace(minute=0, second=0, microsecond=0)
     files = {}
     start = time.time()
@@ -103,7 +106,27 @@ def run_sat(put_files=None):
         have.add(key)
         print("Satellite :", t.isoformat(), "luminance moyenne", round(mean), "→", len(ov) // 1024, "ko")
         time.sleep(1)
+    # Image satellite « brute » (GeoColour), une par heure, avec le temps qui reste
+    for k in range(HOURS + 1):
+        t = now - dt.timedelta(hours=k)
+        key = t.strftime("%Y%m%d%H")
+        if key in have_geo:
+            continue
+        if time.time() - start > 15 * 60:
+            print("Satellite : GeoColour, temps limite atteint"); break
+        jpg = fetch(t, GEO, tries=2, timeout=60, fmt="image/jpeg")
+        if not jpg:
+            continue
+        # Recompression légère (≈ 300 ko) : l'app en garde 13 en mémoire
+        im = Image.open(io.BytesIO(jpg)).convert("RGB"); b = io.BytesIO(); im.save(b, "JPEG", quality=78, optimize=True)
+        files[f"{PREFIX}geo/{key}.jpg"] = b.getvalue()
+        have_geo.add(key)
+        print("Satellite : GeoColour", t.isoformat(), "→", len(b.getvalue()) // 1024, "ko")
     limit = (now - dt.timedelta(hours=26)).strftime("%Y%m%d%H")
+    for h in sorted(x for x in have_geo if x < limit):
+        try: s3.delete_object(Bucket=bucket, Key=f"{PREFIX}geo/{h}.jpg")
+        except Exception: pass
+    geo_keep = sorted(h for h in have_geo if h >= limit)
     old = sorted(h for h in have if h < limit)
     keep = sorted(h for h in have if h >= limit)
     for h in old:
@@ -112,7 +135,7 @@ def run_sat(put_files=None):
     meta = {"source": "EUMETSAT Meteosat MTG-I FCI IR 10,5 µm (EUMETView)", "licence": "CC BY 4.0",
             "credit": f"Contient des données EUMETSAT Meteosat modifiées {now.year}",
             "updated": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
-            "crs": "EPSG:3857", "render": RENDER, "bbox": [X0, Y0, X1, Y1], "size": [WIDTH, HEIGHT], "hours": keep}
+            "crs": "EPSG:3857", "render": RENDER, "bbox": [X0, Y0, X1, Y1], "size": [WIDTH, HEIGHT], "hours": keep, "geo": geo_keep}
     files[PREFIX + "index.json"] = json.dumps(meta).encode()
     # « latest.json » attendu en dernier par upload() : l'index joue ce rôle
     files[PREFIX + "latest.json"] = files.pop(PREFIX + "index.json")
