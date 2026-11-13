@@ -93,35 +93,125 @@ def with_cth(fields, cth_png):
     return k, np.maximum(m, seen), valid
 
 
-def satm_tiles(fields, t):
-    """Morceaux 5° × 5° à 0,05° : (0) nuage d'après le masque EUMETSAT (%), (1) nuages d'altitude d'après
-    l'infrarouge (%), 255 = hors image. Une seule « heure » : l'heure d'observation."""
-    import struct, zlib
+G_LAT0, G_LAT1, G_LON0, G_LON1 = 30, 60, -15, 30   # grille des nuages mesurés (multiples de 5°, comme l'app)
+NOWCAST_HOURS = 3                                   # heures extrapolées après l'observation
+SATM_PREV = SATM + "_prev.npz"                      # grille de l'heure précédente (pour le mouvement)
+
+
+def satm_grid(fields):
+    """Grille régulière 0,05° (lignes du sud au nord) : nuage mesuré et part « haute », de 0 à 1 ; NaN hors image"""
     k, m, valid = fields
     H, W = k.shape
+    def box(a):                                     # moyenne 3 × 3 (petit lissage avant l'échantillonnage)
+        p = np.pad(a, 1, mode="edge"); c = p.cumsum(0).cumsum(1)
+        c = np.pad(c, ((1, 0), (1, 0)))
+        return (c[3:, 3:] - c[:-3, 3:] - c[3:, :-3] + c[:-3, :-3]) / 9
+    mv, kv, vv = box(m * valid), box(k * valid), box(valid.astype(np.float32))
+    lats = G_LAT0 + (np.arange(int((G_LAT1 - G_LAT0) / SATM_RES)) + 0.5) * SATM_RES
+    lons = G_LON0 + (np.arange(int((G_LON1 - G_LON0) / SATM_RES)) + 0.5) * SATM_RES
+    xs = np.array([(merc(x, 0)[0] - X0) / (X1 - X0) * W for x in lons])
+    ys = np.array([(Y1 - merc(0, y)[1]) / (Y1 - Y0) * H for y in lats])
+    xi = np.clip(xs.astype(int), 0, W - 1); yi = np.clip(ys.astype(int), 0, H - 1)
+    inside = (xs >= 0) & (xs < W)
+    rows = (ys >= 0) & (ys < H)
+    V = vv[np.ix_(yi, xi)]
+    ok = (V > 0.5) & rows[:, None] & inside[None, :]
+    M = np.where(ok, mv[np.ix_(yi, xi)] / np.maximum(V, 1e-3), np.nan).astype(np.float32)
+    K = np.where(ok, kv[np.ix_(yi, xi)] / np.maximum(V, 1e-3), np.nan).astype(np.float32)
+    return M, K
+
+
+def motion(prev, cur, block=20, search=8):
+    """Déplacement des nuages en 1 h (cases de 0,05°), par blocs de 1° : comparaison de l'image précédente
+    décalée avec l'image actuelle (somme des écarts au carré la plus faible). Blocs sans contraste : ignorés."""
+    R, C = cur.shape
+    nb_r, nb_c = R // block, C // block
+    dy = np.full((nb_r, nb_c), np.nan, np.float32); dx = np.full((nb_r, nb_c), np.nan, np.float32)
+    P = np.nan_to_num(prev, nan=0.0); Q = np.nan_to_num(cur, nan=0.0)
+    for bi in range(nb_r):
+        for bj in range(nb_c):
+            r0, c0 = bi * block, bj * block
+            q = Q[r0:r0 + block, c0:c0 + block]
+            if not (0.1 < q.mean() < 0.9) or q.std() < 0.15 or np.isnan(cur[r0:r0 + block, c0:c0 + block]).any():
+                continue
+            best, arg = None, None
+            for sy in range(-search, search + 1):
+                for sx in range(-search, search + 1):
+                    a0, b0 = r0 - sy, c0 - sx
+                    if a0 < 0 or b0 < 0 or a0 + block > R or b0 + block > C:
+                        continue
+                    e = float(((P[a0:a0 + block, b0:b0 + block] - q) ** 2).mean())
+                    if best is None or e < best:
+                        best, arg = e, (sy, sx)
+            if arg is not None and best < 0.5 * float(((P[r0:r0 + block, c0:c0 + block] - q) ** 2).mean() + 1e-6) + 0.02:
+                dy[bi, bj], dx[bi, bj] = arg
+    # Lissage : médiane des voisins, puis valeur de la zone (ou 0) là où rien n'a été mesuré
+    def fill(a):
+        out = a.copy()
+        for i in range(a.shape[0]):
+            for j in range(a.shape[1]):
+                w = a[max(0, i - 1):i + 2, max(0, j - 1):j + 2]
+                w = w[~np.isnan(w)]
+                out[i, j] = np.median(w) if w.size >= 2 else (a[i, j] if not np.isnan(a[i, j]) else np.nan)
+        g = out[~np.isnan(out)]
+        return np.where(np.isnan(out), np.median(g) if g.size >= 10 else 0.0, out)
+    return fill(dy), fill(dx), block
+
+
+def advect(field, dy, dx, block, hours):
+    """Le champ déplacé de « hours » fois le mouvement horaire (interpolation au plus proche)"""
+    R, C = field.shape
+    vy = np.kron(dy, np.ones((block, block)))[:R, :C]; vx = np.kron(dx, np.ones((block, block)))[:R, :C]
+    if vy.shape != (R, C):
+        vy = np.pad(vy, ((0, R - vy.shape[0]), (0, C - vy.shape[1])), mode="edge")
+        vx = np.pad(vx, ((0, R - vx.shape[0]), (0, C - vx.shape[1])), mode="edge")
+    ii, jj = np.indices((R, C))
+    si = np.clip(np.rint(ii - hours * vy).astype(int), 0, R - 1)
+    sj = np.clip(np.rint(jj - hours * vx).astype(int), 0, C - 1)
+    return field[si, sj]
+
+
+def satm_tiles(fields, t, prev=None):
+    """Morceaux 5° × 5° à 0,05° : (0) nuage mesuré (%), (1) nuages d'altitude d'après l'infrarouge (%),
+    255 = hors image. Heure 0 = observation ; heures 1 à 3 = nuages déplacés selon leur mouvement de la dernière
+    heure (prévision immédiate par extrapolation, comme les services météo), si l'image précédente est connue."""
+    import struct, zlib
+    M, K = satm_grid(fields)
+    stack_m, stack_k = [M], [K]
+    note = "sans mouvement"
+    if prev is not None and prev.get("t") == int(t.timestamp()) - 3600 and prev["M"].shape == M.shape:
+        dy, dx, b = motion(prev["M"], M)
+        for h in range(1, NOWCAST_HOURS + 1):
+            stack_m.append(advect(M, dy, dx, b, h)); stack_k.append(advect(K, dy, dx, b, h))
+        sp = np.hypot(dy, dx * 0.69) * SATM_RES * 111          # 0,69 = cos 46° (longitude)
+        note = f"mouvement médian {np.median(sp):.0f} km/h"
+    nh = len(stack_m)
+    cube = np.stack([np.stack([a, c]) for a, c in zip(stack_m, stack_k)])          # [heure][var][ligne][col]
+    enc = np.where(np.isnan(cube), 255, np.clip(np.rint(cube * 100), 0, 100)).astype(np.uint8)
     files = {}
     n = int(round(SATM_TILE / SATM_RES))
     ref = int(t.timestamp())
-    for la in range(int(math.floor(LAT0 / SATM_TILE) * SATM_TILE), int(LAT1), SATM_TILE):   # multiples de 5 (comme l'app)
-        for lo in range(int(math.floor(LON0 / SATM_TILE) * SATM_TILE), int(LON1), SATM_TILE):
-            lats = la + (np.arange(n) + 0.5) * SATM_RES
-            lons = lo + (np.arange(n) + 0.5) * SATM_RES
-            xs = np.array([(merc(x, 0)[0] - X0) / (X1 - X0) * W for x in lons])
-            ys = np.array([(Y1 - merc(0, y)[1]) / (Y1 - Y0) * H for y in lats])
-            block = np.full((2, n, n), 255, np.uint8)
-            for i, y in enumerate(ys):
-                y0, y1 = int(max(0, y - 1)), int(min(H, y + 2))
-                if y1 <= y0: continue
-                for j, x in enumerate(xs):
-                    x0, x1 = int(max(0, x - 1)), int(min(W, x + 2))
-                    if x1 <= x0 or not valid[y0:y1, x0:x1].any(): continue
-                    block[0, i, j] = int(round(100 * float(m[y0:y1, x0:x1].mean())))
-                    block[1, i, j] = int(round(100 * float(k[y0:y1, x0:x1].mean())))
-            if (block == 255).all(): continue
-            hdr = b"LCFC" + struct.pack("<HqIHHfffHH", 1, ref, 3600, 1, 2, float(la), float(lo), SATM_RES, n, n)
+    for la in range(G_LAT0, G_LAT1, SATM_TILE):
+        for lo in range(G_LON0, G_LON1, SATM_TILE):
+            i0 = int(round((la - G_LAT0) / SATM_RES)); j0 = int(round((lo - G_LON0) / SATM_RES))
+            block = enc[:, :, i0:i0 + n, j0:j0 + n]
+            if block.shape[2] < n or block.shape[3] < n or (block == 255).all():
+                continue
+            hdr = b"LCFC" + struct.pack("<HqIHHfffHH", 1, ref, 3600, nh, 2, float(la), float(lo), SATM_RES, n, n)
             c = zlib.compressobj(9, zlib.DEFLATED, -15)
-            files[f"{SATM}{la}_{lo}.bin"] = hdr + c.compress(block.tobytes()) + c.flush()
+            files[f"{SATM}{la}_{lo}.bin"] = hdr + c.compress(np.ascontiguousarray(block).tobytes()) + c.flush()
+    b = io.BytesIO(); np.savez_compressed(b, M=M, t=np.int64(ref)); files[SATM_PREV] = b.getvalue()
+    print("Satellite : nuages mesurés,", nh, "heure(s),", note)
     return files
+
+def prev_grid(s3):
+    from lucarne_forecast import r2_settings
+    try:
+        d = np.load(io.BytesIO(s3.get_object(Bucket=r2_settings()[3], Key=SATM_PREV)["Body"].read()))
+        return {"M": d["M"], "t": int(d["t"])}
+    except Exception:
+        return None
+
 
 def run_sat(put_files=None):
     from lucarne_forecast import r2_client, upload
@@ -155,7 +245,7 @@ def run_sat(put_files=None):
         if not any(f.startswith(SATM) for f in files):
             try:
                 cth = fetch(t, CTH, width=700, tries=2, timeout=40)
-                files.update(satm_tiles(with_cth(fields, cth), t)); satm_new = key
+                files.update(satm_tiles(with_cth(fields, cth), t, prev_grid(s3))); satm_new = key
                 print("Satellite : nuages mesurés", t.isoformat(), "→", sum(1 for f in files if f.startswith(SATM)), "morceaux")
             except Exception as e:
                 print("Satellite : morceaux mesurés en échec :", str(e)[:120])
@@ -164,7 +254,7 @@ def run_sat(put_files=None):
         time.sleep(1)
     # Nuages mesurés : si cette passe n'a traité aucune heure nouvelle et que la dernière heure disponible n'a pas
     # encore ses morceaux (première fois, ou échec précédent), on les refait à partir de cette heure
-    satm_at = idx.get("satm") if idx.get("satm_v") == 3 else None
+    satm_at = idx.get("satm") if idx.get("satm_v") == 4 else None
     newest = max(have) if have else None
     if newest and not any(f.startswith(SATM) for f in files) and satm_at != newest:
         t = dt.datetime.strptime(newest, "%Y%m%d%H").replace(tzinfo=dt.timezone.utc)
@@ -172,7 +262,7 @@ def run_sat(put_files=None):
         if png and mask:
             try:
                 cth = fetch(t, CTH, width=700, tries=2, timeout=40)
-                files.update(satm_tiles(with_cth(to_overlay(png, mask)[2], cth), t)); satm_at = newest
+                files.update(satm_tiles(with_cth(to_overlay(png, mask)[2], cth), t, prev_grid(s3))); satm_at = newest
                 print("Satellite : nuages mesurés (rattrapage)", newest)
             except Exception as e:
                 print("Satellite : rattrapage en échec :", str(e)[:120])
@@ -207,7 +297,7 @@ def run_sat(put_files=None):
     meta = {"source": "EUMETSAT Meteosat MTG-I FCI IR 10,5 µm (EUMETView)", "licence": "CC BY 4.0",
             "credit": f"Contient des données EUMETSAT Meteosat modifiées {now.year}",
             "updated": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
-            "crs": "EPSG:3857", "render": RENDER, "bbox": [X0, Y0, X1, Y1], "size": [WIDTH, HEIGHT], "hours": keep, "geo": geo_keep, "satm": satm_at, "satm_v": 3}
+            "crs": "EPSG:3857", "render": RENDER, "bbox": [X0, Y0, X1, Y1], "size": [WIDTH, HEIGHT], "hours": keep, "geo": geo_keep, "satm": satm_at, "satm_v": 4}
     files[PREFIX + "index.json"] = json.dumps(meta).encode()
     # « latest.json » attendu en dernier par upload() : l'index joue ce rôle
     files[PREFIX + "latest.json"] = files.pop(PREFIX + "index.json")
