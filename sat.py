@@ -89,8 +89,8 @@ def satm_tiles(fields, t):
     files = {}
     n = int(round(SATM_TILE / SATM_RES))
     ref = int(t.timestamp())
-    for la in range(int(LAT0), int(LAT1), SATM_TILE):
-        for lo in range(int(math.floor(LON0 / 5) * 5), int(LON1), SATM_TILE):
+    for la in range(int(math.floor(LAT0 / SATM_TILE) * SATM_TILE), int(LAT1), SATM_TILE):   # multiples de 5 (comme l'app)
+        for lo in range(int(math.floor(LON0 / SATM_TILE) * SATM_TILE), int(LON1), SATM_TILE):
             lats = la + (np.arange(n) + 0.5) * SATM_RES
             lons = lo + (np.arange(n) + 0.5) * SATM_RES
             xs = np.array([(merc(x, 0)[0] - X0) / (X1 - X0) * W for x in lons])
@@ -150,7 +150,7 @@ def run_sat(put_files=None):
         time.sleep(1)
     # Nuages mesurés : si cette passe n'a traité aucune heure nouvelle et que la dernière heure disponible n'a pas
     # encore ses morceaux (première fois, ou échec précédent), on les refait à partir de cette heure
-    satm_at = idx.get("satm")
+    satm_at = idx.get("satm") if idx.get("satm_v") == 2 else None
     newest = max(have) if have else None
     if newest and not any(f.startswith(SATM) for f in files) and satm_at != newest:
         t = dt.datetime.strptime(newest, "%Y%m%d%H").replace(tzinfo=dt.timezone.utc)
@@ -192,7 +192,7 @@ def run_sat(put_files=None):
     meta = {"source": "EUMETSAT Meteosat MTG-I FCI IR 10,5 µm (EUMETView)", "licence": "CC BY 4.0",
             "credit": f"Contient des données EUMETSAT Meteosat modifiées {now.year}",
             "updated": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
-            "crs": "EPSG:3857", "render": RENDER, "bbox": [X0, Y0, X1, Y1], "size": [WIDTH, HEIGHT], "hours": keep, "geo": geo_keep, "satm": satm_at}
+            "crs": "EPSG:3857", "render": RENDER, "bbox": [X0, Y0, X1, Y1], "size": [WIDTH, HEIGHT], "hours": keep, "geo": geo_keep, "satm": satm_at, "satm_v": 2}
     files[PREFIX + "index.json"] = json.dumps(meta).encode()
     # « latest.json » attendu en dernier par upload() : l'index joue ce rôle
     files[PREFIX + "latest.json"] = files.pop(PREFIX + "index.json")
