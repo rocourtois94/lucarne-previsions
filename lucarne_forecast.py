@@ -22,10 +22,10 @@ from scipy.spatial import cKDTree
 
 STAC = "https://data.geo.admin.ch/api/stac/v1"
 COLL = "ch.meteoschweiz.ogd-forecasting-icon-ch2"
-VARS = ["CLCT", "CLCL", "CLCM", "CLCH", "CDCT", "T2M", "TD2M", "WIND", "GUST", "TQV", "TQI"]
+VARS = ["CLCT", "CLCL", "CLCM", "CLCH", "CDCT", "LTOP", "T2M", "TD2M", "WIND", "GUST", "TQV", "TQI"]
 # Paramètres ICON à télécharger pour chaque variable de sortie, et codage sur un octet (voir codage.py)
 import codage
-INPUTS = {"CLCT": ["CLCT"], "CLCL": ["CLCL"], "CLCM": ["CLCM"], "CLCH": ["CLCH"], "CDCT": ["CDCT"],
+INPUTS = {"CLCT": ["CLCT"], "CLCL": ["CLCL"], "CLCM": ["CLCM"], "CLCH": ["CLCH"], "CDCT": ["CDCT"], "LTOP": [],
           "T2M": ["T_2M"], "TD2M": ["TD_2M"], "WIND": ["U_10M", "V_10M"], "GUST": ["VMAX_10M"],
           "TQV": ["TQV"], "TQI": ["TQI"]}
 ENCODE = {"T2M": codage.kelvin, "TD2M": codage.kelvin, "WIND": codage.wind_kmh, "GUST": codage.kmh_from_ms,
@@ -39,7 +39,7 @@ TILE = 1            # degré
 PREFIX = "fc1/ch2/"
 PREFIX_H = "fc1/ch2h/"     # altitude du terrain du modèle (m / 20), pour choisir la case voisine à la bonne altitude
 PREFIX_W = "fc1/ch2w/"     # météo (T2M, TD2M, WIND, GUST, TQV, TQI)
-NCLOUD = 5                 # les 5 premières variables vont dans fc1/ch2/
+NCLOUD = 6                 # les 6 premières variables vont dans fc1/ch2/ (LTOP depuis le 13/11/2026)
 MODEL = "ICON-CH2-EPS"
 CONST = "horizontal_constants_icon-ch2-eps.grib2"
 FAR_DEG = 0.05             # au-delà, la case est hors du domaine du modèle
@@ -185,6 +185,8 @@ def main():
     urls = {p: asset_urls(ref, p) for v in VARS for p in INPUTS[v]}
     for vi, v in enumerate(VARS):
         params = INPUTS[v]
+        if not params:                       # LTOP : calculé à part (lowtop.py)
+            continue
         for h in range(HOURS + 1):
             if all(h in urls[p] for p in params):
                 jobs.append((vi, h, [urls[p][h] for p in params]))
@@ -208,6 +210,14 @@ def main():
         for vi, h, g in ex.map(work, jobs):
             cube[h, vi] = g
     print("Téléchargé et regrillé en", round(time.time() - t0), "s")
+    # Sommet des nuages bas d'après la nébulosité 3D (ICON-CH2 seulement : CH1 serait 4 fois plus lourd)
+    if "LTOP" in VARS and COLL.endswith("icon-ch2"):
+        try:
+            import lowtop
+            lowtop.run(sys.modules[__name__], ref, idx, far, cube, VARS.index("LTOP"), hsurf)
+        except Exception:
+            import traceback
+            print("Échec (LTOP) :"); traceback.print_exc()
 
     ref_unix = int(dt.datetime.fromisoformat(ref.replace("Z", "+00:00")).timestamp())
     n = int(round(TILE / RES))

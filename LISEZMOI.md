@@ -75,3 +75,12 @@ Le planificateur de GitHub sautait la plupart des passages programmés. Les calc
 Cloudflare « lucarne-horloge » (code dans `horloge/worker.js`, secret `GITHUB_TOKEN`) :
 vigilance.yml à h+47, meteoswiss.yml à h+40, previsions.yml à 4:20, 10:20, 16:20 et 22:20 UTC.
 Seul entretien.yml (mensuel) garde un horaire GitHub. Chaque calcul reste lançable à la main (« Run workflow »).
+
+
+## Sommet des nuages bas « LTOP » (depuis le 13/11/2026)
+`lowtop.py` (appelé par `lucarne_forecast.py`, ICON-CH2 seulement) : 6e variable de `fc1/ch2/` (les morceaux ont
+désormais 6 variables ; `fc1/ch1/` aussi, avec LTOP = 255 inconnu). Sommet de la première couche nuageuse partant
+d'une base à moins de 2 500 m au-dessus du terrain (CLC ≥ 50 % pour commencer, puis tant que CLC ≥ 30 %), d'après la
+nébulosité 3D CLC et la hauteur des demi-niveaux (constantes verticales). Codage comme CDCT : pas de 20 m, 0 = pas de
+nuage bas, 255 = inconnu. Seulement les niveaux du bas (≈ 40, jusqu'à 4,5 km, requêtes partielles sur la fin des
+fichiers) et les heures de nuit (14–07 UTC) des 72 premières heures : ≈ 1 Go téléchargé par run. CC BY 4.0, MeteoSwiss.
