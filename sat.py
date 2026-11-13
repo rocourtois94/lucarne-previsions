@@ -24,7 +24,7 @@ PREFIX = "fc1/sat/"
 LON0, LON1, LAT0, LAT1 = -14.0, 30.0, 34.0, 60.0
 WIDTH = 2000
 HOURS = 12
-RENDER = 4                    # version du rendu (changer pour tout recalculer)
+RENDER = 5                    # version du rendu (5 : stratus de nuit d'après GeoColour) (changer pour tout recalculer)
 UA = {"User-Agent": "Lucarne-previsions (info@photily.fr)"}
 
 def merc(lon, lat):
@@ -51,7 +51,38 @@ def fetch(t, layer=LAYER, width=WIDTH, tries=3, timeout=90, fmt="image/png"):
             print("Satellite :", t, "essai", k + 1, ":", str(e)[:100]); time.sleep(10)
     return None
 
-def to_overlay(png, mask_png=None):
+def sun_elevation(lat, lon, t):
+    """Hauteur du Soleil (degrés), formule simple (± 1°) ; lat/lon en degrés, tableaux numpy acceptés"""
+    d = t.timetuple().tm_yday + (t.hour + t.minute / 60) / 24
+    g = 2 * math.pi / 365 * (d - 1)
+    decl = (0.006918 - 0.399912 * np.cos(g) + 0.070257 * np.sin(g) - 0.006758 * np.cos(2 * g)
+            + 0.000907 * np.sin(2 * g) - 0.002697 * np.cos(3 * g) + 0.00148 * np.sin(3 * g))
+    eq = 229.18 * (0.000075 + 0.001868 * np.cos(g) - 0.032077 * np.sin(g) - 0.014615 * np.cos(2 * g) - 0.040849 * np.sin(2 * g))
+    ha = np.radians((t.hour * 60 + t.minute + eq + 4 * lon) / 4 - 180)
+    la = np.radians(lat)
+    return np.degrees(np.arcsin(np.sin(la) * np.sin(decl) + np.cos(la) * np.cos(decl) * np.cos(ha)))
+
+
+def geo_low(jpg, t, size):
+    """Nuages bas de nuit d'après l'image GeoColour d'EUMETSAT : stratus et brouillard y sont gris-bleu clair
+    (méthode des services météo : écart infrarouge 10,8 − 3,9 µm). Le masque nuageux EUMETSAT, lui, rate souvent
+    le stratus de nuit : le 13/11/2026 à 20 h, Genève « dégagé » dans le masque, sous une couche de stratus en vrai.
+    Seulement là où il fait nuit (Soleil sous −6°) ; 0 ailleurs. Résultat 0…1, à la taille (W, H) demandée."""
+    W, H = size
+    g = np.asarray(Image.open(io.BytesIO(jpg)).convert("RGB").resize((W, H), Image.BILINEAR), dtype=np.float32)
+    r, b = g[..., 0], g[..., 2]
+    lum = g.mean(axis=2)
+    low = np.clip((b - r - 15) / 25, 0, 1) * np.clip((lum - 70) / 60, 0, 1)
+    R = 6378137.0
+    xs = X0 + (np.arange(W) + 0.5) / W * (X1 - X0)
+    ys = Y1 - (np.arange(H) + 0.5) / H * (Y1 - Y0)
+    lon = np.degrees(xs / R)[None, :]
+    lat = np.degrees(2 * np.arctan(np.exp(ys / R)) - math.pi / 2)[:, None]
+    night = sun_elevation(lat, lon, t) < -6
+    return np.where(night, low, 0).astype(np.float32)
+
+
+def to_overlay(png, mask_png=None, low_extra=None):
     """Toutes les couches, avec la même logique que la prévision de l'app (BestSky drawIR) :
     - k : nuages d'altitude, d'après l'infrarouge (sommet froid → blanc, d'autant plus opaque qu'il est froid ;
       un voile de cirrus reste translucide, un cumulonimbus est opaque) ;
@@ -67,6 +98,8 @@ def to_overlay(png, mask_png=None):
         l = ((m.min(axis=2) - 200) / 45).clip(0, 1) * 0.75        # blanc dans le masque = nuage
     else:
         l = np.zeros_like(k)
+    if low_extra is not None and low_extra.shape == l.shape:
+        l = np.maximum(l, low_extra * 0.75)                     # stratus de nuit vu par GeoColour
     alpha = k + l * (1 - k)
     w = k / np.maximum(alpha, 1e-3)                               # part « haut » dans la couleur
     alpha[~valid] = 0
@@ -224,6 +257,7 @@ def run_sat(put_files=None):
     have_geo = set(idx.get("geo", []))
     now = dt.datetime.now(dt.timezone.utc).replace(minute=0, second=0, microsecond=0)
     files = {}
+    geo_cache = {}
     satm_new = None
     start = time.time()
     for k in range(HOURS + 1):
@@ -239,7 +273,17 @@ def run_sat(put_files=None):
         mask = fetch(t, MASK, width=700, tries=2, timeout=40) if time.time() - start < 10 * 60 else None
         if not mask:        # sans masque, le stratus serait invisible : on retentera au prochain passage
             print("Satellite :", t, "masque nuageux indisponible, heure refaite au prochain passage"); continue
-        ov, mean, fields = to_overlay(png, mask)
+        # Image GeoColour de la même heure (gardée pour la boucle GeoColour plus bas) : stratus de nuit
+        geo_jpg = None if key in have_geo else fetch(t, GEO, tries=2, timeout=60, fmt="image/jpeg")
+        if geo_jpg: geo_cache[key] = geo_jpg
+        low = None
+        if geo_jpg or key in have_geo:
+            try:
+                src = geo_jpg or s3.get_object(Bucket=bucket, Key=f"{PREFIX}geo/{key}.jpg")["Body"].read()
+                low = geo_low(src, t, Image.open(io.BytesIO(png)).size)
+            except Exception as e:
+                print("Satellite : stratus GeoColour indisponible :", str(e)[:100])
+        ov, mean, fields = to_overlay(png, mask, low)
         files[f"{PREFIX}{key}.png"] = ov
         # Heure la plus récente traitée : nuages mesurés pour recaler les premières heures de prévision dans l'app
         if not any(f.startswith(SATM) for f in files):
@@ -262,7 +306,9 @@ def run_sat(put_files=None):
         if png and mask:
             try:
                 cth = fetch(t, CTH, width=700, tries=2, timeout=40)
-                files.update(satm_tiles(with_cth(to_overlay(png, mask)[2], cth), t, prev_grid(s3))); satm_at = newest
+                try: low = geo_low(s3.get_object(Bucket=bucket, Key=f"{PREFIX}geo/{newest}.jpg")["Body"].read(), t, Image.open(io.BytesIO(png)).size)
+                except Exception: low = None
+                files.update(satm_tiles(with_cth(to_overlay(png, mask, low)[2], cth), t, prev_grid(s3))); satm_at = newest
                 print("Satellite : nuages mesurés (rattrapage)", newest)
             except Exception as e:
                 print("Satellite : rattrapage en échec :", str(e)[:120])
@@ -276,7 +322,7 @@ def run_sat(put_files=None):
             continue
         if time.time() - start > 15 * 60:
             print("Satellite : GeoColour, temps limite atteint"); break
-        jpg = fetch(t, GEO, tries=2, timeout=60, fmt="image/jpeg")
+        jpg = geo_cache.get(key) or fetch(t, GEO, tries=2, timeout=60, fmt="image/jpeg")
         if not jpg:
             continue
         # Recompression légère (≈ 300 ko) : l'app en garde 13 en mémoire
