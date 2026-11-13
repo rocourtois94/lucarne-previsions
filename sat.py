@@ -74,7 +74,41 @@ def to_overlay(png, mask_png=None):
     out[..., 2] = (195 + 60 * w).astype(np.uint8)
     out[..., 3] = (alpha * 255).astype(np.uint8)
     b = io.BytesIO(); Image.fromarray(out, "RGBA").save(b, "PNG", optimize=True)
-    return b.getvalue(), float(np.mean(lum[valid])) if valid.any() else 0
+    return b.getvalue(), float(np.mean(lum[valid])) if valid.any() else 0, (k, l / 0.75, valid)
+
+
+SATM = "fc1/satm/"            # nuages MESURÉS de la dernière heure, en morceaux « LCFC » (recalage de la prévision)
+SATM_RES, SATM_TILE = 0.05, 5
+
+def satm_tiles(fields, t):
+    """Morceaux 5° × 5° à 0,05° : (0) nuage d'après le masque EUMETSAT (%), (1) nuages d'altitude d'après
+    l'infrarouge (%), 255 = hors image. Une seule « heure » : l'heure d'observation."""
+    import struct, zlib
+    k, m, valid = fields
+    H, W = k.shape
+    files = {}
+    n = int(round(SATM_TILE / SATM_RES))
+    ref = int(t.timestamp())
+    for la in range(int(LAT0), int(LAT1), SATM_TILE):
+        for lo in range(int(math.floor(LON0 / 5) * 5), int(LON1), SATM_TILE):
+            lats = la + (np.arange(n) + 0.5) * SATM_RES
+            lons = lo + (np.arange(n) + 0.5) * SATM_RES
+            xs = np.array([(merc(x, 0)[0] - X0) / (X1 - X0) * W for x in lons])
+            ys = np.array([(Y1 - merc(0, y)[1]) / (Y1 - Y0) * H for y in lats])
+            block = np.full((2, n, n), 255, np.uint8)
+            for i, y in enumerate(ys):
+                y0, y1 = int(max(0, y - 1)), int(min(H, y + 2))
+                if y1 <= y0: continue
+                for j, x in enumerate(xs):
+                    x0, x1 = int(max(0, x - 1)), int(min(W, x + 2))
+                    if x1 <= x0 or not valid[y0:y1, x0:x1].any(): continue
+                    block[0, i, j] = int(round(100 * float(m[y0:y1, x0:x1].mean())))
+                    block[1, i, j] = int(round(100 * float(k[y0:y1, x0:x1].mean())))
+            if (block == 255).all(): continue
+            hdr = b"LCFC" + struct.pack("<HqIHHfffHH", 1, ref, 3600, 1, 2, float(la), float(lo), SATM_RES, n, n)
+            c = zlib.compressobj(9, zlib.DEFLATED, -15)
+            files[f"{SATM}{la}_{lo}.bin"] = hdr + c.compress(block.tobytes()) + c.flush()
+    return files
 
 def run_sat(put_files=None):
     from lucarne_forecast import r2_client, upload
@@ -101,8 +135,15 @@ def run_sat(put_files=None):
         mask = fetch(t, MASK, width=700, tries=2, timeout=40) if time.time() - start < 10 * 60 else None
         if not mask:        # sans masque, le stratus serait invisible : on retentera au prochain passage
             print("Satellite :", t, "masque nuageux indisponible, heure refaite au prochain passage"); continue
-        ov, mean = to_overlay(png, mask)
+        ov, mean, fields = to_overlay(png, mask)
         files[f"{PREFIX}{key}.png"] = ov
+        # Heure la plus récente traitée : nuages mesurés pour recaler les premières heures de prévision dans l'app
+        if not any(f.startswith(SATM) for f in files):
+            try:
+                files.update(satm_tiles(fields, t))
+                print("Satellite : nuages mesurés", t.isoformat(), "→", sum(1 for f in files if f.startswith(SATM)), "morceaux")
+            except Exception as e:
+                print("Satellite : morceaux mesurés en échec :", str(e)[:120])
         have.add(key)
         print("Satellite :", t.isoformat(), "luminance moyenne", round(mean), "→", len(ov) // 1024, "ko")
         time.sleep(1)

@@ -84,3 +84,8 @@ d'une base à moins de 2 500 m au-dessus du terrain (CLC ≥ 50 % pour commencer
 nébulosité 3D CLC et la hauteur des demi-niveaux (constantes verticales). Codage comme CDCT : pas de 20 m, 0 = pas de
 nuage bas, 255 = inconnu. Seulement les niveaux du bas (≈ 40, jusqu'à 4,5 km, requêtes partielles sur la fin des
 fichiers) et les heures de nuit (14–07 UTC) des 72 premières heures : ≈ 1 Go téléchargé par run. CC BY 4.0, MeteoSwiss.
+
+## Nuages mesurés « satm » (depuis le 13/11/2026)
+`sat.py` dépose aussi `fc1/satm/<lat>_<lon>.bin` (morceaux 5° × 5°, 0,05°, format « LCFC », une seule heure = heure
+d'observation) : (0) nuage d'après le masque nuageux EUMETSAT (%), (1) nuages d'altitude d'après l'infrarouge (%).
+L'app s'en sert pour recaler les 3 premières heures de prévision quand les modèles ratent un stratus.
