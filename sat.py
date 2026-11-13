@@ -17,6 +17,8 @@ WMS = "https://view.eumetsat.int/geoserver/wms"
 LAYER = "mtg_fd:ir105_hrfi"
 GEO = "mtg_fd:rgb_geocolour"  # « image satellite » comme MeteoSwiss : couleurs vraies le jour, nuages bas bleutés
                               # et lumières des villes la nuit (composition RGB des images Core, même licence)
+CTH = "msg_fes:cth"           # hauteur du sommet des nuages (produit dérivé « Core ») : tout pixel coloré = nuage ;
+                              # complète le masque, qui rate parfois le stratus au crépuscule (13/11/2026)
 MASK = "msg_fes:clm"          # masque nuageux (produit dérivé « Core ») : voit aussi stratus et nuages bas
 PREFIX = "fc1/sat/"
 LON0, LON1, LAT0, LAT1 = -14.0, 30.0, 34.0, 60.0
@@ -80,6 +82,17 @@ def to_overlay(png, mask_png=None):
 SATM = "fc1/satm/"            # nuages MESURÉS de la dernière heure, en morceaux « LCFC » (recalage de la prévision)
 SATM_RES, SATM_TILE = 0.05, 5
 
+def with_cth(fields, cth_png):
+    """Nuage mesuré = masque OU hauteur de sommet connue (pixel non noir de la couche CTH)"""
+    if not cth_png:
+        return fields
+    k, m, valid = fields
+    H, W = k.shape
+    c = np.asarray(Image.open(io.BytesIO(cth_png)).convert("RGB").resize((W, H), Image.NEAREST), dtype=np.float32)
+    seen = (c.max(axis=2) > 40).astype(np.float32)
+    return k, np.maximum(m, seen), valid
+
+
 def satm_tiles(fields, t):
     """Morceaux 5° × 5° à 0,05° : (0) nuage d'après le masque EUMETSAT (%), (1) nuages d'altitude d'après
     l'infrarouge (%), 255 = hors image. Une seule « heure » : l'heure d'observation."""
@@ -141,7 +154,8 @@ def run_sat(put_files=None):
         # Heure la plus récente traitée : nuages mesurés pour recaler les premières heures de prévision dans l'app
         if not any(f.startswith(SATM) for f in files):
             try:
-                files.update(satm_tiles(fields, t)); satm_new = key
+                cth = fetch(t, CTH, width=700, tries=2, timeout=40)
+                files.update(satm_tiles(with_cth(fields, cth), t)); satm_new = key
                 print("Satellite : nuages mesurés", t.isoformat(), "→", sum(1 for f in files if f.startswith(SATM)), "morceaux")
             except Exception as e:
                 print("Satellite : morceaux mesurés en échec :", str(e)[:120])
@@ -150,14 +164,15 @@ def run_sat(put_files=None):
         time.sleep(1)
     # Nuages mesurés : si cette passe n'a traité aucune heure nouvelle et que la dernière heure disponible n'a pas
     # encore ses morceaux (première fois, ou échec précédent), on les refait à partir de cette heure
-    satm_at = idx.get("satm") if idx.get("satm_v") == 2 else None
+    satm_at = idx.get("satm") if idx.get("satm_v") == 3 else None
     newest = max(have) if have else None
     if newest and not any(f.startswith(SATM) for f in files) and satm_at != newest:
         t = dt.datetime.strptime(newest, "%Y%m%d%H").replace(tzinfo=dt.timezone.utc)
         png = fetch(t); mask = fetch(t, MASK, width=700, tries=2, timeout=40) if png else None
         if png and mask:
             try:
-                files.update(satm_tiles(to_overlay(png, mask)[2], t)); satm_at = newest
+                cth = fetch(t, CTH, width=700, tries=2, timeout=40)
+                files.update(satm_tiles(with_cth(to_overlay(png, mask)[2], cth), t)); satm_at = newest
                 print("Satellite : nuages mesurés (rattrapage)", newest)
             except Exception as e:
                 print("Satellite : rattrapage en échec :", str(e)[:120])
@@ -192,7 +207,7 @@ def run_sat(put_files=None):
     meta = {"source": "EUMETSAT Meteosat MTG-I FCI IR 10,5 µm (EUMETView)", "licence": "CC BY 4.0",
             "credit": f"Contient des données EUMETSAT Meteosat modifiées {now.year}",
             "updated": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
-            "crs": "EPSG:3857", "render": RENDER, "bbox": [X0, Y0, X1, Y1], "size": [WIDTH, HEIGHT], "hours": keep, "geo": geo_keep, "satm": satm_at, "satm_v": 2}
+            "crs": "EPSG:3857", "render": RENDER, "bbox": [X0, Y0, X1, Y1], "size": [WIDTH, HEIGHT], "hours": keep, "geo": geo_keep, "satm": satm_at, "satm_v": 3}
     files[PREFIX + "index.json"] = json.dumps(meta).encode()
     # « latest.json » attendu en dernier par upload() : l'index joue ce rôle
     files[PREFIX + "latest.json"] = files.pop(PREFIX + "index.json")
