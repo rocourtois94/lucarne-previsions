@@ -323,7 +323,7 @@ def upload(files):
     s3, bucket = r2_client()
     def put(item):
         name, data = item
-        s3.put_object(Bucket=bucket, Key=name, Body=data, CacheControl="public, max-age=1800",
+        s3.put_object(Bucket=bucket, Key=name, Body=data, CacheControl="public, max-age=300",   # 5 min : le satellite et la prévision immédiate changent souvent (le cache de Cloudflare servait des fichiers vieux de 30 min)
                       ContentType="application/json" if name.endswith(".json") else "application/octet-stream")
     # Les morceaux d'abord, latest.json en dernier (l'app ne voit le nouveau run qu'une fois tout en place)
     items = sorted(files.items(), key=lambda kv: kv[0].endswith("latest.json"))
