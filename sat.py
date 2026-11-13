@@ -121,6 +121,7 @@ def run_sat(put_files=None):
     have_geo = set(idx.get("geo", []))
     now = dt.datetime.now(dt.timezone.utc).replace(minute=0, second=0, microsecond=0)
     files = {}
+    satm_new = None
     start = time.time()
     for k in range(HOURS + 1):
         t = now - dt.timedelta(hours=k)
@@ -140,13 +141,28 @@ def run_sat(put_files=None):
         # Heure la plus récente traitée : nuages mesurés pour recaler les premières heures de prévision dans l'app
         if not any(f.startswith(SATM) for f in files):
             try:
-                files.update(satm_tiles(fields, t))
+                files.update(satm_tiles(fields, t)); satm_new = key
                 print("Satellite : nuages mesurés", t.isoformat(), "→", sum(1 for f in files if f.startswith(SATM)), "morceaux")
             except Exception as e:
                 print("Satellite : morceaux mesurés en échec :", str(e)[:120])
         have.add(key)
         print("Satellite :", t.isoformat(), "luminance moyenne", round(mean), "→", len(ov) // 1024, "ko")
         time.sleep(1)
+    # Nuages mesurés : si cette passe n'a traité aucune heure nouvelle et que la dernière heure disponible n'a pas
+    # encore ses morceaux (première fois, ou échec précédent), on les refait à partir de cette heure
+    satm_at = idx.get("satm")
+    newest = max(have) if have else None
+    if newest and not any(f.startswith(SATM) for f in files) and satm_at != newest:
+        t = dt.datetime.strptime(newest, "%Y%m%d%H").replace(tzinfo=dt.timezone.utc)
+        png = fetch(t); mask = fetch(t, MASK, width=700, tries=2, timeout=40) if png else None
+        if png and mask:
+            try:
+                files.update(satm_tiles(to_overlay(png, mask)[2], t)); satm_at = newest
+                print("Satellite : nuages mesurés (rattrapage)", newest)
+            except Exception as e:
+                print("Satellite : rattrapage en échec :", str(e)[:120])
+    if satm_new:
+        satm_at = satm_new
     # Image satellite « brute » (GeoColour), une par heure, avec le temps qui reste
     for k in range(HOURS + 1):
         t = now - dt.timedelta(hours=k)
@@ -176,7 +192,7 @@ def run_sat(put_files=None):
     meta = {"source": "EUMETSAT Meteosat MTG-I FCI IR 10,5 µm (EUMETView)", "licence": "CC BY 4.0",
             "credit": f"Contient des données EUMETSAT Meteosat modifiées {now.year}",
             "updated": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
-            "crs": "EPSG:3857", "render": RENDER, "bbox": [X0, Y0, X1, Y1], "size": [WIDTH, HEIGHT], "hours": keep, "geo": geo_keep}
+            "crs": "EPSG:3857", "render": RENDER, "bbox": [X0, Y0, X1, Y1], "size": [WIDTH, HEIGHT], "hours": keep, "geo": geo_keep, "satm": satm_at}
     files[PREFIX + "index.json"] = json.dumps(meta).encode()
     # « latest.json » attendu en dernier par upload() : l'index joue ce rôle
     files[PREFIX + "latest.json"] = files.pop(PREFIX + "index.json")
