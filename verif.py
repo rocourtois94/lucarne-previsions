@@ -2,7 +2,7 @@
 
 Pour l'heure de la dernière image Meteosat (fc1/satm/, heure 0 = nuages mesurés), on compare en ≈ 3 500 points
 (tous les 0,25° sur 41–51° N, 5° O–17° E) la couverture prévue par chaque modèle pour cette heure à la couverture
-mesurée : MeteoSwiss ICON-CH1 et ICON-CH2, Météo-France AROME et AROME-PI, ECMWF. Seulement là où il fait nuit
+mesurée : MeteoSwiss ICON-CH1 et ICON-CH2, Météo-France AROME et AROME-PI, ECMWF, DWD ICON-EU. Seulement là où il fait nuit
 (Soleil sous −6°) : le masque nuageux de jour peut confondre neige et nuages.
 
 Scores par case de 1° : erreur absolue moyenne (0 à 1) et taux de bonne réponse « dégagé / couvert » (seuil 30 %),
@@ -17,7 +17,8 @@ LAT0, LAT1, LON0, LON1, STEP = 41.0, 51.0, -5.0, 17.0, 0.25
 DECAY = 0.97
 CLEAR = 0.30
 MODELS = {   # nom : (préfixe, taille des morceaux en degrés)
-    "ch1": ("fc1/ch1/", 1), "ch2": ("fc1/ch2/", 1), "arome": ("fc1/arome/", 1), "pi": ("fc1/pi/", 1), "ec": ("fc1/ec/", 5)}
+    "ch1": ("fc1/ch1/", 1), "ch2": ("fc1/ch2/", 1), "arome": ("fc1/arome/", 1), "pi": ("fc1/pi/", 1), "ec": ("fc1/ec/", 5),
+    "eu": ("fc1/eu/", 5)}
 
 
 def parse(b):

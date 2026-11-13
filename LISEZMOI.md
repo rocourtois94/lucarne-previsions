@@ -96,3 +96,9 @@ L'app s'en sert pour recaler les 3 premières heures de prévision quand les mod
 couverture mesurée (`fc1/satm/`). Scores par case de 1° dans `fc1/verif/scores.json` : [poids, somme des erreurs
 absolues, bonnes réponses dégagé/couvert], oubli × 0,97 par heure vérifiée. L'app pondère les modèles avec.
 `fc1/satm/` : heures 1 à 3 = nuages mesurés déplacés selon leur mouvement de la dernière heure (blocs de 1°).
+
+## DWD ICON-EU (depuis le 13/11/2026)
+`iconeu.py` (job « iconeu » de `previsions.yml`) : ICON-EU 0,0625°, dernier run complet 00/06/12/18 UTC, échéances
+0–72 h, CLCT, CLCL, CLCM, CLCH (%). Morceaux 5° × 5° `fc1/eu/<lat>_<lon>.bin` sur 35–60° N, 15° O–30° E (centres des
+cases sur la grille du modèle : lat/lon de l'en-tête = bord − 0,03125°). Licence CC BY 4.0, « Datenbasis : Deutscher
+Wetterdienst, données modifiées ». Vérifié aussi par `verif.py` (clé « eu »).
