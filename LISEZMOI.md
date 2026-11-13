@@ -89,3 +89,10 @@ fichiers) et les heures de nuit (14–07 UTC) des 72 premières heures : ≈ 1 G
 `sat.py` dépose aussi `fc1/satm/<lat>_<lon>.bin` (morceaux 5° × 5°, 0,05°, format « LCFC », une seule heure = heure
 d'observation) : (0) nuage d'après le masque nuageux EUMETSAT (%), (1) nuages d'altitude d'après l'infrarouge (%).
 L'app s'en sert pour recaler les 3 premières heures de prévision quand les modèles ratent un stratus.
+
+## Vérification des modèles (depuis le 13/11/2026)
+`verif.py` (après `sat.py`, chaque heure) : pour l'heure de la dernière image, compare en ≈ 3 500 points de nuit
+(41–51° N, 5° O–17° E, tous les 0,25°) la couverture prévue par ICON-CH1, ICON-CH2, AROME, AROME-PI et ECMWF à la
+couverture mesurée (`fc1/satm/`). Scores par case de 1° dans `fc1/verif/scores.json` : [poids, somme des erreurs
+absolues, bonnes réponses dégagé/couvert], oubli × 0,97 par heure vérifiée. L'app pondère les modèles avec.
+`fc1/satm/` : heures 1 à 3 = nuages mesurés déplacés selon leur mouvement de la dernière heure (blocs de 1°).
